@@ -28,6 +28,13 @@ async function launchBrowserContext(config, options = {}) {
     );
   }
 
+  if (config.browser.cdpEndpoint && config.browser.type !== "chromium") {
+    throw new AppError(
+      "CONFIG_INVALID",
+      "BROWSER_CDP_ENDPOINT is only supported with BROWSER_TYPE=chromium",
+    );
+  }
+
   if (
     config.browser.channel &&
     config.browser.type !== "chromium" &&
@@ -39,20 +46,18 @@ async function launchBrowserContext(config, options = {}) {
     );
   }
 
-  const launchOptions = {
-    headless: forceHeaded ? false : config.browser.headless,
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
-  };
-
-  if (config.browser.channel) {
-    launchOptions.channel = config.browser.channel;
-  }
-
-  if (config.browser.executablePath) {
-    launchOptions.executablePath = config.browser.executablePath;
-  }
-
-  const browser = await browserType.launch(launchOptions);
+  const browser = config.browser.cdpEndpoint
+    ? await playwright.chromium.connectOverCDP(config.browser.cdpEndpoint)
+    : await browserType.launch({
+        headless: forceHeaded ? false : config.browser.headless,
+        args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        ...(config.browser.channel
+          ? { channel: config.browser.channel }
+          : {}),
+        ...(config.browser.executablePath
+          ? { executablePath: config.browser.executablePath }
+          : {}),
+      });
 
   const contextOptions = {
     locale: "zh-TW",

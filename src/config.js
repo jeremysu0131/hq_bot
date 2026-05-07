@@ -121,6 +121,11 @@ function loadConfig(mode) {
   const browserExecutablePath = (
     process.env.BROWSER_EXECUTABLE_PATH || ""
   ).trim();
+  const browserCdpEndpoint = (
+    process.env.BROWSER_CDP_ENDPOINT ||
+    process.env.BROWSER_WS_ENDPOINT ||
+    ""
+  ).trim();
   const cutoffMinutes = parseCutoff(cutoffLabel);
 
   if (cutoffMinutes === null) {
@@ -169,6 +174,7 @@ function loadConfig(mode) {
           process.env.PLAYWRIGHT_BROWSER ||
           "chromium",
       ),
+      cdpEndpoint: browserCdpEndpoint || undefined,
       headless: parseBoolean(
         process.env.BROWSER_HEADLESS ?? process.env.PLAYWRIGHT_HEADLESS,
         true,

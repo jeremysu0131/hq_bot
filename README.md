@@ -22,7 +22,7 @@ npm install
 
 註：本專案使用 `playwright-core`，不會自動下載瀏覽器。
 本機請安裝系統瀏覽器（預設使用 Chromium/Chrome），並可透過 `.env` 設定 `BROWSER_EXECUTABLE_PATH`。
-Dockerfile 目前已改為 Node slim + apt 安裝 `chromium`，可直接使用。
+Docker Compose 會另外啟動 headless Chromium sidecar，主 app image 不再內建瀏覽器以降低容量。
 
 2. 建立環境變數
 
@@ -165,7 +165,7 @@ docker compose logs -f hq-bot
 可手動觸發一次檢查：
 
 ```bash
-docker compose exec hq-bot npm run check
+docker compose exec hq-bot node src/cli.js check
 ```
 
 ### 7. 更新部署
@@ -199,6 +199,12 @@ docker compose up -d --build
 docker compose logs -f hq-bot
 ```
 
+### Image Size
+
+Docker image 主要容量來自 Chromium。為了降低主 app image 容量，Dockerfile 只保留 Node runtime，瀏覽器改由 `chromedp/headless-shell` sidecar 提供，app 透過 `BROWSER_CDP_ENDPOINT=http://127.0.0.1:9222` 連線。
+
+如果不想使用 sidecar，也可以改回在 app image 安裝系統 Chromium 並設定 `BROWSER_EXECUTABLE_PATH`，但 image 會明顯變大。
+
 ## Key Env Vars
 
 - `GOOGLE_CHAT_URL`: 要監控的群組 URL
@@ -210,6 +216,7 @@ docker compose logs -f hq-bot
 - `BROWSER_TYPE`: `chromium`、`firefox`、`webkit`（預設 `chromium`）
 - `BROWSER_CHANNEL`: 瀏覽器 channel（例如 `chrome`、`msedge`，主要用於 chromium）
 - `BROWSER_EXECUTABLE_PATH`: 系統瀏覽器執行檔路徑
+- `BROWSER_CDP_ENDPOINT`: 遠端 Chromium DevTools endpoint（Docker Compose 預設 `http://127.0.0.1:9222`）
 - `BROWSER_HEADLESS`: 是否使用 headless，預設 `true`
 - `GOOGLE_EMAIL`: Google 登入帳號（選填，與密碼一起使用）
 - `GOOGLE_PASSWORD`: Google 登入密碼（選填，與帳號一起使用）

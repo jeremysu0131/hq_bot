@@ -1,11 +1,21 @@
 services:
+  browser:
+    image: chromedp/headless-shell:latest
+    container_name: hq-bot-browser
+    restart: unless-stopped
+
   hq-bot:
     build: .
     container_name: hq-bot
     restart: unless-stopped
+    network_mode: service:browser
+    depends_on:
+      - browser
     env_file:
       - .env
-    command: npm run start
+    environment:
+      BROWSER_CDP_ENDPOINT: http://127.0.0.1:9222
+    command: node src/cli.js start
     volumes:
       - ./state:/app/state
       - ./logs:/app/logs
