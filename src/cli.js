@@ -4,6 +4,8 @@ const { runAuth } = require("./auth");
 const { runCheck } = require("./checkService");
 const { startScheduler } = require("./scheduler");
 const { sendTelegramMessage } = require("./notifier/telegram");
+const { version } = require("../package.json");
+const dayjs = require("./dayjs");
 
 async function main() {
   const mode = process.argv[2] || "start";
@@ -25,6 +27,17 @@ async function main() {
   }
 
   startScheduler(config);
+
+  const startedAt = dayjs().tz(config.timezone).format("YYYY-MM-DD HH:mm:ss");
+  const startupMessage = [
+    "[HQ Bot] 服務啟動成功",
+    `Version: ${version}`,
+    `Time: ${startedAt} (${config.timezone})`,
+  ].join("\n");
+
+  sendTelegramMessage(config, startupMessage).catch((error) => {
+    console.error("Failed to send startup message:", error.message);
+  });
 }
 
 main().catch((error) => {
