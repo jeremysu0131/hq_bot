@@ -33,6 +33,22 @@ function parseInteger(name, value, defaultValue, { min, max }) {
   return parsed;
 }
 
+function parseBrowserType(value) {
+  const normalized = String(value || "chromium")
+    .trim()
+    .toLowerCase();
+  const supported = new Set(["chromium", "firefox", "webkit"]);
+
+  if (!supported.has(normalized)) {
+    throw new AppError(
+      "CONFIG_INVALID",
+      "BROWSER_TYPE must be one of: chromium, firefox, webkit",
+    );
+  }
+
+  return normalized;
+}
+
 function normalizeMentionTag(input) {
   const value = String(input || "").trim();
   if (!value) {
@@ -102,6 +118,9 @@ function loadConfig(mode) {
   const cutoffLabel = process.env.CHECK_CUTOFF || "19:30";
   const googleEmail = (process.env.GOOGLE_EMAIL || "").trim();
   const googlePassword = process.env.GOOGLE_PASSWORD || "";
+  const browserExecutablePath = (
+    process.env.BROWSER_EXECUTABLE_PATH || ""
+  ).trim();
   const cutoffMinutes = parseCutoff(cutoffLabel);
 
   if (cutoffMinutes === null) {
@@ -144,8 +163,20 @@ function loadConfig(mode) {
       process.env.SESSION_PATH || "./state/google-session.json",
     ),
     logDir: path.resolve(process.cwd(), "./logs"),
-    playwright: {
-      headless: parseBoolean(process.env.PLAYWRIGHT_HEADLESS, true),
+    browser: {
+      type: parseBrowserType(
+        process.env.BROWSER_TYPE ||
+          process.env.PLAYWRIGHT_BROWSER ||
+          "chromium",
+      ),
+      headless: parseBoolean(
+        process.env.BROWSER_HEADLESS ?? process.env.PLAYWRIGHT_HEADLESS,
+        true,
+      ),
+      channel: (process.env.BROWSER_CHANNEL || "").trim() || undefined,
+      executablePath: browserExecutablePath
+        ? path.resolve(process.cwd(), browserExecutablePath)
+        : undefined,
     },
     chat: {
       loadTimeoutMs: parseInteger(

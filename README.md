@@ -20,15 +20,9 @@ Google Chat 打卡檢查服務。每天 19:30（Asia/Taipei）檢查指定人員
 npm install
 ```
 
-本機第一次執行前，安裝 Playwright 瀏覽器：
-
-```bash
-npx playwright install chromium
-```
-
-註：目前 Dockerfile 使用 `mcr.microsoft.com/playwright:v1.59.1-jammy`，映像已內建 Chromium，
-所以用本專案 Dockerfile 建 image 時通常不需要再執行 `playwright install`。
-若你改用一般 Node.js base image，才需要在 build 階段額外安裝瀏覽器。
+註：本專案使用 `playwright-core`，不會自動下載瀏覽器。
+本機請安裝系統瀏覽器（預設使用 Chromium/Chrome），並可透過 `.env` 設定 `BROWSER_EXECUTABLE_PATH`。
+Dockerfile 目前已改為 Node slim + apt 安裝 `chromium`，可直接使用。
 
 2. 建立環境變數
 
@@ -212,7 +206,11 @@ docker compose logs -f hq-bot
 - `TZ`: 時區，預設 `Asia/Taipei`
 - `CHECK_CRON`: cron 表示式，預設 `30 19 * * *`
 - `CHECK_CUTOFF`: 規則截止時間，預設 `19:30`
-- `SESSION_PATH`: Playwright session 路徑
+- `SESSION_PATH`: 瀏覽器 session 路徑
+- `BROWSER_TYPE`: `chromium`、`firefox`、`webkit`（預設 `chromium`）
+- `BROWSER_CHANNEL`: 瀏覽器 channel（例如 `chrome`、`msedge`，主要用於 chromium）
+- `BROWSER_EXECUTABLE_PATH`: 系統瀏覽器執行檔路徑
+- `BROWSER_HEADLESS`: 是否使用 headless，預設 `true`
 - `GOOGLE_EMAIL`: Google 登入帳號（選填，與密碼一起使用）
 - `GOOGLE_PASSWORD`: Google 登入密碼（選填，與帳號一起使用）
 - `AUTO_LOGIN_POST_WAIT_MS`: 自動登入完成後等待跳轉毫秒數

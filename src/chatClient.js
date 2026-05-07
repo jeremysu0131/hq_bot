@@ -1,5 +1,5 @@
 const fs = require("fs");
-const { chromium } = require("playwright");
+const playwright = require("playwright-core");
 const { AppError } = require("./errors");
 
 async function launchBrowserContext(config, options = {}) {
@@ -20,10 +20,39 @@ async function launchBrowserContext(config, options = {}) {
     );
   }
 
-  const browser = await chromium.launch({
-    headless: forceHeaded ? false : config.playwright.headless,
+  const browserType = playwright[config.browser.type];
+  if (!browserType) {
+    throw new AppError(
+      "CONFIG_INVALID",
+      `Unsupported browser type: ${config.browser.type}`,
+    );
+  }
+
+  if (
+    config.browser.channel &&
+    config.browser.type !== "chromium" &&
+    !config.browser.executablePath
+  ) {
+    throw new AppError(
+      "CONFIG_INVALID",
+      "BROWSER_CHANNEL is only supported for chromium unless BROWSER_EXECUTABLE_PATH is set",
+    );
+  }
+
+  const launchOptions = {
+    headless: forceHeaded ? false : config.browser.headless,
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
-  });
+  };
+
+  if (config.browser.channel) {
+    launchOptions.channel = config.browser.channel;
+  }
+
+  if (config.browser.executablePath) {
+    launchOptions.executablePath = config.browser.executablePath;
+  }
+
+  const browser = await browserType.launch(launchOptions);
 
   const contextOptions = {
     locale: "zh-TW",

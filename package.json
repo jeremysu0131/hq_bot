@@ -7,7 +7,6 @@
     "auth": "node src/cli.js auth",
     "check": "node src/cli.js check",
     "start": "node src/cli.js start",
-    "playwright:install": "playwright install chromium",
     "dev": "nodemon",
     "start:dev": "nodemon --config nodemon.json --exec \"node src/cli.js start\"",
     "test": "jest --runInBand"
@@ -21,7 +20,7 @@
     "dayjs": "^1.11.13",
     "dotenv": "^17.2.2",
     "node-cron": "^4.2.1",
-    "playwright": "^1.55.0"
+    "playwright-core": "^1.55.0"
   },
   "devDependencies": {
     "jest": "^30.1.3",
