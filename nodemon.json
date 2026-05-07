@@ -1,0 +1,14 @@
+{
+    "watch": [
+        "src",
+        ".env"
+    ],
+    "ext": "js,json",
+    "ignore": [
+        "logs/*",
+        "state/*",
+        "test/*"
+    ],
+    "delay": "200ms",
+    "exec": "node src/cli.js check"
+}

@@ -1,0 +1,11 @@
+services:
+  hq-bot:
+    build: .
+    container_name: hq-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: npm run start
+    volumes:
+      - ./state:/app/state
+      - ./logs:/app/logs
