@@ -204,6 +204,21 @@ function loadConfig(mode) {
         },
       ),
     },
+    check: {
+      attempts: parseInteger("CHECK_ATTEMPTS", process.env.CHECK_ATTEMPTS, 3, {
+        min: 1,
+        max: 10,
+      }),
+      retryWaitMs: parseInteger(
+        "CHECK_RETRY_WAIT_MS",
+        process.env.CHECK_RETRY_WAIT_MS,
+        2000,
+        {
+          min: 0,
+          max: 60000,
+        },
+      ),
+    },
     auth: {
       googleEmail,
       googlePassword,

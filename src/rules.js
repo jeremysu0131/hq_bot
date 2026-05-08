@@ -26,6 +26,7 @@ function evaluateAttendance(entries, options) {
 
     return {
       userName: user.name,
+      userToken: user.token,
       mentionTag: user.mentionTag || "",
       shouldAlert,
       skipCheckoutCheck,

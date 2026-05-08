@@ -7,6 +7,7 @@ Google Chat 打卡檢查服務。每天 19:30（Asia/Taipei）檢查指定人員
 - 每日固定時間檢查（預設 `30 19 * * *`）
 - 監控指定人員（預設 `HQT - Jeremy,HQT - Conner`）
 - 支援多種日期與時間格式（例如 `5月7日`、`05月07日`、`5/7`、`1924`、`20：10`）
+- 每次排程最多重複檢查 3 次，已確認下班者會先記錄，未確認者才繼續檢查
 - 支援兩種登入：人工 session 授權或 `.env` 帳密自動登入
 - 支援在 `WATCH_USERS` 多行設定使用者與可選 Telegram tag（例如 `HQT - Jeremy, @JSanXiao`）
 - 若有上班打卡者皆完成下班打卡，會主動發送「全員打卡完成」訊息
@@ -206,6 +207,8 @@ docker compose logs -f hq-bot
 - `TZ`: 時區，預設 `Asia/Taipei`
 - `CHECK_CRON`: cron 表示式，預設 `30 19 * * *`
 - `CHECK_CUTOFF`: 規則截止時間，預設 `19:30`
+- `CHECK_ATTEMPTS`: 每次檢查最多重複讀取 Google Chat 次數，預設 `3`
+- `CHECK_RETRY_WAIT_MS`: 每次重查間隔毫秒數，預設 `2000`
 - `SESSION_PATH`: 瀏覽器 session 路徑
 - `BROWSER_TYPE`: `chromium`、`firefox`、`webkit`（預設 `chromium`）
 - `BROWSER_CHANNEL`: 瀏覽器 channel（例如 `chrome`、`msedge`，主要用於 chromium）
