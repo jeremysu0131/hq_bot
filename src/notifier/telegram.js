@@ -56,10 +56,7 @@ function buildAllCheckedOutAlert(payload) {
     payload;
 
   const checkedList = checkedUsers
-    .map(
-      (item) =>
-        `- ${item.userName}${item.mentionTag ? ` ${item.mentionTag}` : ""}`,
-    )
+    .map((item) => `- ${item.userName}`)
     .join("\n");
 
   const lines = [
