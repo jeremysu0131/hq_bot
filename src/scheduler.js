@@ -4,30 +4,28 @@ const { runCheck, safeSendErrorAlert } = require("./checkService");
 function startScheduler(config) {
   let isRunning = false;
 
-  const task = cron.schedule(
-    config.cronExpression,
-    async () => {
-      if (isRunning) {
-        console.warn("Skip tick: previous check is still running.");
-        return;
-      }
+  const run = async () => {
+    if (isRunning) {
+      console.warn("Skip tick: previous check is still running.");
+      return;
+    }
 
-      isRunning = true;
-      try {
-        await runCheck(config, "scheduler");
-      } catch (error) {
-        console.error("Scheduled check failed:", error.message);
-      } finally {
-        isRunning = false;
-      }
-    },
-    {
-      timezone: config.timezone,
-    },
+    isRunning = true;
+    try {
+      await runCheck(config, "scheduler");
+    } catch (error) {
+      console.error("Scheduled check failed:", error.message);
+    } finally {
+      isRunning = false;
+    }
+  };
+
+  const tasks = config.cronExpressions.map((expr) =>
+    cron.schedule(expr, run, { timezone: config.timezone }),
   );
 
   console.log(
-    `Scheduler started: ${config.cronExpression} (${config.timezone})`,
+    `Scheduler started: ${config.cronExpressions.join(", ")} (${config.timezone})`,
   );
 
   process.on("unhandledRejection", async (error) => {
@@ -40,7 +38,7 @@ function startScheduler(config) {
     console.error("Uncaught exception:", error);
   });
 
-  return task;
+  return tasks;
 }
 
 module.exports = {

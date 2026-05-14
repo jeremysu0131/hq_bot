@@ -15,7 +15,7 @@ const watchUsers = [
 ];
 
 describe("evaluateAttendance", () => {
-  test("alerts when checked in but no checkout before cutoff", () => {
+  test("alerts when checked in but no checkout", () => {
     const entries = [
       {
         userName: "HQT - Jeremy",
@@ -39,7 +39,6 @@ describe("evaluateAttendance", () => {
 
     const result = evaluateAttendance(entries, {
       watchUsers,
-      cutoffMinutes: 1170,
     });
 
     expect(result.alertUsers.map((item) => item.userName)).toEqual([
@@ -47,7 +46,7 @@ describe("evaluateAttendance", () => {
     ]);
   });
 
-  test("checkout after cutoff still alerts", () => {
+  test("does not alert when checkout exists after checkin", () => {
     const entries = [
       {
         userName: "HQT - Jeremy",
@@ -65,12 +64,9 @@ describe("evaluateAttendance", () => {
 
     const result = evaluateAttendance(entries, {
       watchUsers: [watchUsers[0]],
-      cutoffMinutes: 1170,
     });
 
-    expect(result.alertUsers.map((item) => item.userName)).toEqual([
-      "HQT - Jeremy",
-    ]);
+    expect(result.alertUsers).toHaveLength(0);
   });
 
   test("skips checkout validation when check-in is missing", () => {
@@ -85,7 +81,6 @@ describe("evaluateAttendance", () => {
 
     const result = evaluateAttendance(entries, {
       watchUsers,
-      cutoffMinutes: 1170,
     });
 
     const jeremy = result.statuses.find(
@@ -114,7 +109,6 @@ describe("evaluateAttendance", () => {
 
     const result = evaluateAttendance(entries, {
       watchUsers,
-      cutoffMinutes: 1170,
     });
 
     expect(result.allCheckedOut).toBe(true);

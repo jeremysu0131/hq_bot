@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      BROWSER_EXECUTABLE_PATH: /usr/bin/chromium
     command: npm run start
     volumes:
       - ./state:/app/state

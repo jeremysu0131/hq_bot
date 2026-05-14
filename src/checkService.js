@@ -4,7 +4,6 @@ const { parseAttendanceEntries } = require("./parser");
 const { evaluateAttendance } = require("./rules");
 const {
   buildAttendanceAlert,
-  buildAllCheckedOutAlert,
   buildErrorAlert,
   sendTelegramMessage,
 } = require("./notifier/telegram");
@@ -101,7 +100,6 @@ async function collectAttendanceWithRetries(
       successfulAttempts += 1;
       evaluation = evaluateAttendance(entries, {
         watchUsers: config.watchUsers,
-        cutoffMinutes: config.cutoffMinutes,
       });
 
       const newlyCheckedUsers = evaluation.checkedUsers.filter(
@@ -197,19 +195,8 @@ async function runCheck(config, trigger = "manual") {
     if (evaluation.alertUsers.length > 0) {
       const message = buildAttendanceAlert({
         targetDateLabel,
-        cutoffLabel: config.cutoffLabel,
         chatUrl: config.chatUrl,
         alertUsers: evaluation.alertUsers,
-      });
-
-      await sendTelegramMessage(config, message);
-    } else if (evaluation.allCheckedOut) {
-      const message = buildAllCheckedOutAlert({
-        targetDateLabel,
-        cutoffLabel: config.cutoffLabel,
-        chatUrl: config.chatUrl,
-        checkedUsers: evaluation.checkedUsers,
-        skippedUsers: evaluation.skippedUsers,
       });
 
       await sendTelegramMessage(config, message);

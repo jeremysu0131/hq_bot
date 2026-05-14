@@ -110,25 +110,63 @@ function ensureRuntimePaths(config) {
   fs.mkdirSync(config.logDir, { recursive: true });
 }
 
+function resolveBrowserExecutablePath(rawValue) {
+  const configuredPath = String(rawValue || "").trim();
+
+  if (configuredPath) {
+    return path.isAbsolute(configuredPath)
+      ? configuredPath
+      : path.resolve(process.cwd(), configuredPath);
+  }
+
+  // In containers we prefer system-installed Chromium instead of Playwright cache.
+  const fallbacks = [
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+  ];
+
+  for (const fallback of fallbacks) {
+    if (fs.existsSync(fallback)) {
+      return fallback;
+    }
+  }
+
+  return undefined;
+}
+
 function loadConfig(mode) {
   const selectedMode = mode || "start";
   const chatUrl = process.env.GOOGLE_CHAT_URL;
   const timezone = process.env.TZ || "Asia/Taipei";
-  const cronExpression = process.env.CHECK_CRON || "30 19 * * *";
+  const cronRaw = process.env.CHECK_CRON || "30 19 * * *,0 21 * * *,0 23 * * *";
+  const cronExpressions = cronRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const cutoffLabel = process.env.CHECK_CUTOFF || "19:30";
   const googleEmail = (process.env.GOOGLE_EMAIL || "").trim();
   const googlePassword = process.env.GOOGLE_PASSWORD || "";
-  const browserExecutablePath = (
-    process.env.BROWSER_EXECUTABLE_PATH || ""
-  ).trim();
+  const browserExecutablePath = resolveBrowserExecutablePath(
+    process.env.BROWSER_EXECUTABLE_PATH,
+  );
   const cutoffMinutes = parseCutoff(cutoffLabel);
 
   if (cutoffMinutes === null) {
     throw new AppError("CONFIG_INVALID", "CHECK_CUTOFF must use HH:mm format");
   }
 
-  if (selectedMode === "start" && !cron.validate(cronExpression)) {
-    throw new AppError("CONFIG_INVALID", "CHECK_CRON is invalid");
+  if (selectedMode === "start") {
+    if (cronExpressions.length === 0) {
+      throw new AppError("CONFIG_INVALID", "CHECK_CRON must not be empty");
+    }
+
+    for (const expr of cronExpressions) {
+      if (!cron.validate(expr)) {
+        throw new AppError("CONFIG_INVALID", `CHECK_CRON expression is invalid: "${expr}"`);
+      }
+    }
   }
 
   if (!chatUrl) {
@@ -155,7 +193,7 @@ function loadConfig(mode) {
     chatUrl,
     watchUsers,
     timezone,
-    cronExpression,
+    cronExpressions,
     cutoffLabel,
     cutoffMinutes,
     sessionPath: path.resolve(
@@ -174,9 +212,7 @@ function loadConfig(mode) {
         true,
       ),
       channel: (process.env.BROWSER_CHANNEL || "").trim() || undefined,
-      executablePath: browserExecutablePath
-        ? path.resolve(process.cwd(), browserExecutablePath)
-        : undefined,
+      executablePath: browserExecutablePath,
     },
     chat: {
       loadTimeoutMs: parseInteger(

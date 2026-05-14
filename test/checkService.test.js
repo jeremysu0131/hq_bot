@@ -119,10 +119,7 @@ HQT - Conner ${dateLabel}，18:36 下班
       "HQT - Jeremy",
       "HQT - Conner",
     ]);
-    expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
-    expect(sendTelegramMessage.mock.calls[0][1]).toContain(
-      "[HQ Bot] 打卡檢查完成",
-    );
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 
   test("continues retrying after a Google Chat read failure", async () => {
@@ -146,9 +143,6 @@ HQT - Conner ${dateLabel}，18:36 下班
       "HQT - Jeremy",
       "HQT - Conner",
     ]);
-    expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
-    expect(sendTelegramMessage.mock.calls[0][1]).toContain(
-      "[HQ Bot] 打卡檢查完成",
-    );
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 });

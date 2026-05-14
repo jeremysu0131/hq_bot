@@ -1,23 +1,18 @@
 function evaluateAttendance(entries, options) {
-  const { watchUsers, cutoffMinutes } = options;
+  const { watchUsers } = options;
 
   const statuses = watchUsers.map((user) => {
     const userEntries = entries
       .filter((entry) => entry.userToken === user.token)
       .sort((left, right) => left.minutes - right.minutes);
 
-    const checkIns = userEntries.filter(
-      (entry) => entry.action === "checkin" && entry.minutes <= cutoffMinutes,
-    );
+    const checkIns = userEntries.filter((entry) => entry.action === "checkin");
 
     const firstCheckIn = checkIns.length > 0 ? checkIns[0].minutes : null;
     const skipCheckoutCheck = firstCheckIn === null;
     const checkOuts = skipCheckoutCheck
       ? []
-      : userEntries.filter(
-          (entry) =>
-            entry.action === "checkout" && entry.minutes <= cutoffMinutes,
-        );
+      : userEntries.filter((entry) => entry.action === "checkout");
     const validCheckOut = skipCheckoutCheck
       ? null
       : checkOuts.find((entry) => entry.minutes >= firstCheckIn) || null;
@@ -31,7 +26,7 @@ function evaluateAttendance(entries, options) {
       shouldAlert,
       skipCheckoutCheck,
       firstCheckIn,
-      checkOutBeforeCutoff: validCheckOut ? validCheckOut.minutes : null,
+      checkOutMinutes: validCheckOut ? validCheckOut.minutes : null,
       checkIns,
       checkOuts,
       entries: userEntries,
@@ -42,7 +37,7 @@ function evaluateAttendance(entries, options) {
   const activeUsers = statuses.filter((status) => !status.skipCheckoutCheck);
   const skippedUsers = statuses.filter((status) => status.skipCheckoutCheck);
   const checkedUsers = activeUsers.filter(
-    (status) => status.checkOutBeforeCutoff !== null,
+    (status) => status.checkOutMinutes !== null,
   );
   const allCheckedOut = activeUsers.length > 0 && alertUsers.length === 0;
 

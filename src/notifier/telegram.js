@@ -33,7 +33,7 @@ async function sendTelegramMessage(config, message) {
 }
 
 function buildAttendanceAlert(payload) {
-  const { targetDateLabel, cutoffLabel, chatUrl, alertUsers } = payload;
+  const { targetDateLabel, chatUrl, alertUsers } = payload;
   const userList = alertUsers
     .map(
       (item) =>
@@ -44,7 +44,7 @@ function buildAttendanceAlert(payload) {
   return [
     "[HQ Bot] 下班沒打卡提醒",
     `日期: ${targetDateLabel}`,
-    `規則: 有上班、${cutoffLabel} 前無下班`,
+    "規則: 有上班打卡但尚未下班打卡",
     "未打卡下班名單:",
     userList,
     `群組: ${chatUrl}`,
