@@ -1,5 +1,5 @@
 const { loadConfig } = require("./config");
-const { AppError } = require("./errors");
+const { AppError, toErrorSummary } = require("./errors");
 const { runAuth } = require("./auth");
 const { runCheck } = require("./checkService");
 const { startScheduler } = require("./scheduler");
@@ -41,6 +41,9 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error.message || error);
+  console.error(toErrorSummary(error));
+  if (error.cause) {
+    console.error(`Caused by: ${toErrorSummary(error.cause)}`);
+  }
   process.exitCode = 1;
 });

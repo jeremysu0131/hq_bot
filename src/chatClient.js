@@ -88,6 +88,73 @@ async function clickAnySelector(page, selectors) {
   return false;
 }
 
+function isGoogleCaptchaChallenge(pageText) {
+  return /輸入您聽到或看到的文字|Enter the text you hear or see|captcha/i.test(
+    pageText,
+  );
+}
+
+async function waitForFirstVisibleInput(page, selector, timeout) {
+  const input = page.locator(selector).filter({ visible: true }).first();
+  try {
+    await input.waitFor({ state: "visible", timeout });
+    return input;
+  } catch (error) {
+    const pageText = await page.evaluate(() => document.body?.innerText || "");
+    if (isGoogleCaptchaChallenge(pageText)) {
+      throw new AppError(
+        "LOGIN_CHALLENGE",
+        "Google requires CAPTCHA verification. Run manual auth in a browser and copy the session file to the server.",
+        error,
+      );
+    }
+
+    throw error;
+  }
+}
+
+async function waitForPasswordInput(page, selector, config) {
+  const passwordInput = page.locator(selector).filter({ visible: true }).first();
+  const captchaInput = page.locator("input[name='ca']").filter({
+    visible: true,
+  });
+  const deadline = Date.now() + config.chat.loadTimeoutMs;
+
+  while (Date.now() < deadline) {
+    if ((await passwordInput.count()) > 0) {
+      return passwordInput;
+    }
+
+    if ((await captchaInput.count()) > 0) {
+      throw new AppError(
+        "LOGIN_CHALLENGE",
+        "Google requires CAPTCHA verification. Run manual auth in a browser and copy the session file to the server.",
+      );
+    }
+
+    const pageText = await page.evaluate(() => document.body?.innerText || "");
+    if (isGoogleCaptchaChallenge(pageText)) {
+      throw new AppError(
+        "LOGIN_CHALLENGE",
+        "Google requires CAPTCHA verification. Run manual auth in a browser and copy the session file to the server.",
+      );
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  await passwordInput.waitFor({
+    state: "visible",
+    timeout: Math.max(1, deadline - Date.now()),
+  });
+  return passwordInput;
+}
+
+async function fillFirstVisibleInput(page, selector, value, timeout) {
+  const input = await waitForFirstVisibleInput(page, selector, timeout);
+  await input.fill(value);
+}
+
 async function performCredentialLogin(page, config) {
   if (!config.auth.autoLoginEnabled) {
     throw new AppError(
@@ -96,13 +163,17 @@ async function performCredentialLogin(page, config) {
     );
   }
 
-  const emailSelector = "input[type='email'], input[name='identifier']";
-  const passwordSelector = "input[type='password'], input[name='Passwd']";
+  const emailSelector =
+    "input[type='email'], input[name='identifier']:not([type='hidden'])";
+  const passwordSelector =
+    "input[name='Passwd']:not([aria-hidden='true']), input[type='password']:not([name='hiddenPassword']):not([aria-hidden='true'])";
 
-  await page.waitForSelector(emailSelector, {
-    timeout: config.chat.loadTimeoutMs,
-  });
-  await page.fill(emailSelector, config.auth.googleEmail);
+  await fillFirstVisibleInput(
+    page,
+    emailSelector,
+    config.auth.googleEmail,
+    config.chat.loadTimeoutMs,
+  );
 
   const clickedEmailNext = await clickAnySelector(page, [
     "#identifierNext button",
@@ -114,10 +185,12 @@ async function performCredentialLogin(page, config) {
     await page.keyboard.press("Enter");
   }
 
-  await page.waitForSelector(passwordSelector, {
-    timeout: config.chat.loadTimeoutMs,
-  });
-  await page.fill(passwordSelector, config.auth.googlePassword);
+  const passwordInput = await waitForPasswordInput(
+    page,
+    passwordSelector,
+    config,
+  );
+  await passwordInput.fill(config.auth.googlePassword);
 
   const clickedPasswordNext = await clickAnySelector(page, [
     "#passwordNext button",
@@ -272,6 +345,8 @@ async function fetchChatRawText(config) {
 }
 
 module.exports = {
+  fillFirstVisibleInput,
+  isGoogleCaptchaChallenge,
   performCredentialLogin,
   fetchChatRawText,
   launchBrowserContext,
