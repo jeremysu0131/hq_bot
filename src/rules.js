@@ -51,6 +51,41 @@ function evaluateAttendance(entries, options) {
   };
 }
 
+function evaluateCheckIns(entries, options) {
+  const { watchUsers, cutoffMinutes } = options;
+
+  const statuses = watchUsers.map((user) => {
+    const userEntries = entries
+      .filter((entry) => entry.userToken === user.token)
+      .sort((left, right) => left.minutes - right.minutes);
+
+    const checkIns = userEntries.filter((entry) => entry.action === "checkin");
+    const validCheckIn =
+      checkIns.find((entry) => entry.minutes <= cutoffMinutes) || null;
+
+    return {
+      userName: user.name,
+      userToken: user.token,
+      mentionTag: user.mentionTag || "",
+      shouldAlert: validCheckIn === null,
+      checkInMinutes: validCheckIn ? validCheckIn.minutes : null,
+      checkIns,
+      entries: userEntries,
+    };
+  });
+
+  const alertUsers = statuses.filter((status) => status.shouldAlert);
+  const checkedUsers = statuses.filter((status) => !status.shouldAlert);
+
+  return {
+    statuses,
+    alertUsers,
+    checkedUsers,
+    allCheckedIn: alertUsers.length === 0,
+  };
+}
+
 module.exports = {
   evaluateAttendance,
+  evaluateCheckIns,
 };

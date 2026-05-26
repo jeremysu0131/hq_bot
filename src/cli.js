@@ -1,7 +1,7 @@
 const { loadConfig } = require("./config");
 const { AppError, toErrorSummary } = require("./errors");
 const { runAuth } = require("./auth");
-const { runCheck } = require("./checkService");
+const { runCheck, runCheckInCheck } = require("./checkService");
 const { startScheduler } = require("./scheduler");
 const { sendTelegramMessage } = require("./notifier/telegram");
 const { version } = require("../package.json");
@@ -10,7 +10,7 @@ const dayjs = require("./dayjs");
 async function main() {
   const mode = process.argv[2] || "start";
 
-  if (!["auth", "check", "start"].includes(mode)) {
+  if (!["auth", "check", "checkin", "start"].includes(mode)) {
     throw new AppError("MODE_INVALID", `Unsupported mode: ${mode}`);
   }
 
@@ -23,6 +23,11 @@ async function main() {
 
   if (mode === "check") {
     await runCheck(config, "manual");
+    return;
+  }
+
+  if (mode === "checkin") {
+    await runCheckInCheck(config, "manual");
     return;
   }
 

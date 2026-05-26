@@ -15,7 +15,7 @@ jest.mock("../src/notifier/telegram", () => {
 
 const { fetchChatRawText } = require("../src/chatClient");
 const { sendTelegramMessage } = require("../src/notifier/telegram");
-const { runCheck } = require("../src/checkService");
+const { runCheck, runCheckInCheck } = require("../src/checkService");
 
 const watchUsers = [
   {
@@ -40,6 +40,10 @@ function buildConfig() {
     check: {
       attempts: 3,
       retryWaitMs: 0,
+    },
+    checkIn: {
+      cutoffLabel: "09:45",
+      cutoffMinutes: 585,
     },
     alerts: {
       onErrors: true,
@@ -143,6 +147,85 @@ HQT - Conner ${dateLabel}，18:36 下班
       "HQT - Jeremy",
       "HQT - Conner",
     ]);
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("runCheckInCheck", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(console, "log").mockImplementation(() => {});
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+    sendTelegramMessage.mockResolvedValue({ sent: true });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("keeps checked-in users and retries unresolved users before alerting", async () => {
+    const dateLabel = todayLabel();
+
+    fetchChatRawText
+      .mockResolvedValueOnce(`
+HQT - Jeremy ${dateLabel}，09:01 上班
+HQT - Conner ${dateLabel}，10:02 上班
+`)
+      .mockResolvedValueOnce(`
+HQT - Conner ${dateLabel}，10:02 上班
+`)
+      .mockResolvedValueOnce(`
+HQT - Conner ${dateLabel}，10:02 上班
+`);
+
+    const result = await runCheckInCheck(buildConfig(), "test");
+
+    expect(fetchChatRawText).toHaveBeenCalledTimes(3);
+    expect(result.parsed.attempts).toBe(3);
+    expect(result.evaluation.checkedUsers.map((item) => item.userName)).toEqual([
+      "HQT - Jeremy",
+    ]);
+    expect(result.evaluation.alertUsers.map((item) => item.userName)).toEqual([
+      "HQT - Conner",
+    ]);
+    expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
+
+    const sentMessage = sendTelegramMessage.mock.calls[0][1];
+    expect(sentMessage).toContain("[HQ Bot] 上班沒打卡提醒");
+    expect(sentMessage).toContain("HQT - Conner @Eason_Chung");
+    expect(sentMessage).not.toContain("HQT - Jeremy @JSanXiao");
+  });
+
+  test("does not send Telegram when all users checked in before cutoff", async () => {
+    const dateLabel = todayLabel();
+
+    fetchChatRawText.mockResolvedValueOnce(`
+HQT - Jeremy ${dateLabel}，09:01 上班
+HQT - Conner ${dateLabel}，09:12 上班
+`);
+
+    const result = await runCheckInCheck(buildConfig(), "test");
+
+    expect(fetchChatRawText).toHaveBeenCalledTimes(1);
+    expect(result.evaluation.alertUsers).toHaveLength(0);
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  test("continues retrying after a Google Chat read failure", async () => {
+    const dateLabel = todayLabel();
+
+    fetchChatRawText.mockRejectedValueOnce(new Error("chat read failed"));
+    fetchChatRawText.mockResolvedValueOnce(`
+HQT - Jeremy ${dateLabel}，09:01 上班
+HQT - Conner ${dateLabel}，09:12 上班
+`);
+
+    const result = await runCheckInCheck(buildConfig(), "test");
+
+    expect(fetchChatRawText).toHaveBeenCalledTimes(2);
+    expect(result.parsed.attempts).toBe(2);
+    expect(result.parsed.successfulAttempts).toBe(1);
+    expect(result.evaluation.alertUsers).toHaveLength(0);
     expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 });

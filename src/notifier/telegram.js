@@ -51,6 +51,25 @@ function buildAttendanceAlert(payload) {
   ].join("\n");
 }
 
+function buildCheckInAttendanceAlert(payload) {
+  const { targetDateLabel, cutoffLabel, chatUrl, alertUsers } = payload;
+  const userList = alertUsers
+    .map(
+      (item) =>
+        `- ${item.userName}${item.mentionTag ? ` ${item.mentionTag}` : ""}`,
+    )
+    .join("\n");
+
+  return [
+    "[HQ Bot] 上班沒打卡提醒",
+    `日期: ${targetDateLabel}`,
+    `規則: ${cutoffLabel} 前需完成上班打卡`,
+    "未打卡上班名單:",
+    userList,
+    `群組: ${chatUrl}`,
+  ].join("\n");
+}
+
 function buildAllCheckedOutAlert(payload) {
   const { targetDateLabel, cutoffLabel, chatUrl, checkedUsers, skippedUsers } =
     payload;
@@ -94,6 +113,7 @@ function buildErrorAlert(payload) {
 
 module.exports = {
   buildAttendanceAlert,
+  buildCheckInAttendanceAlert,
   buildAllCheckedOutAlert,
   buildErrorAlert,
   isTelegramConfigured,

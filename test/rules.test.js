@@ -1,4 +1,4 @@
-const { evaluateAttendance } = require("../src/rules");
+const { evaluateAttendance, evaluateCheckIns } = require("../src/rules");
 const { normalizeNameToken } = require("../src/utils/text");
 
 const watchUsers = [
@@ -117,6 +117,37 @@ describe("evaluateAttendance", () => {
     ]);
     expect(result.skippedUsers.map((item) => item.userName)).toEqual([
       "HQT - Conner",
+    ]);
+  });
+});
+
+describe("evaluateCheckIns", () => {
+  test("alerts users without a check-in before cutoff", () => {
+    const entries = [
+      {
+        userName: "HQT - Jeremy",
+        userToken: normalizeNameToken("HQT - Jeremy"),
+        action: "checkin",
+        minutes: 541,
+      },
+      {
+        userName: "HQT - Conner",
+        userToken: normalizeNameToken("HQT - Conner"),
+        action: "checkin",
+        minutes: 602,
+      },
+    ];
+
+    const result = evaluateCheckIns(entries, {
+      watchUsers,
+      cutoffMinutes: 585,
+    });
+
+    expect(result.alertUsers.map((item) => item.userName)).toEqual([
+      "HQT - Conner",
+    ]);
+    expect(result.checkedUsers.map((item) => item.userName)).toEqual([
+      "HQT - Jeremy",
     ]);
   });
 });

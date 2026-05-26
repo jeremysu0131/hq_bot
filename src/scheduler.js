@@ -1,31 +1,49 @@
 const cron = require("node-cron");
-const { runCheck, safeSendErrorAlert } = require("./checkService");
+const {
+  runCheck,
+  runCheckInCheck,
+  safeSendErrorAlert,
+} = require("./checkService");
 
 function startScheduler(config) {
   let isRunning = false;
 
-  const run = async () => {
+  const run = async (name, checkFn) => {
     if (isRunning) {
-      console.warn("Skip tick: previous check is still running.");
+      console.warn(`Skip ${name} tick: previous check is still running.`);
       return;
     }
 
     isRunning = true;
     try {
-      await runCheck(config, "scheduler");
+      await checkFn(config, "scheduler");
     } catch (error) {
-      console.error("Scheduled check failed:", error.message);
+      console.error(`Scheduled ${name} check failed:`, error.message);
     } finally {
       isRunning = false;
     }
   };
 
-  const tasks = config.cronExpressions.map((expr) =>
-    cron.schedule(expr, run, { timezone: config.timezone }),
-  );
+  const tasks = [
+    ...config.checkInCronExpressions.map((expr) =>
+      cron.schedule(expr, () => run("check-in", runCheckInCheck), {
+        timezone: config.timezone,
+      }),
+    ),
+    ...config.cronExpressions.map((expr) =>
+      cron.schedule(expr, () => run("check-out", runCheck), {
+        timezone: config.timezone,
+      }),
+    ),
+  ];
 
   console.log(
-    `Scheduler started: ${config.cronExpressions.join(", ")} (${config.timezone})`,
+    [
+      "Scheduler started:",
+      `check-in=${config.checkInCronExpressions.join(", ")}`,
+      `check-out=${config.cronExpressions.join(", ")}`,
+      `(${config.timezone})`,
+    ].join(" "),
   );
 
   process.on("unhandledRejection", async (error) => {

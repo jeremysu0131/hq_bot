@@ -140,21 +140,36 @@ function loadConfig(mode) {
   const selectedMode = mode || "start";
   const chatUrl = process.env.GOOGLE_CHAT_URL;
   const timezone = process.env.TZ || "Asia/Taipei";
-  const cronRaw = process.env.CHECK_CRON || "30 19 * * *,0 21 * * *,0 23 * * *";
+  const cronRaw =
+    process.env.CHECK_CRON || "30 19 * * *,0 21 * * *,0 23 * * *";
   const cronExpressions = cronRaw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  const checkInCronRaw = process.env.CHECKIN_CRON || "45 9 * * 1-5";
+  const checkInCronExpressions = checkInCronRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const cutoffLabel = process.env.CHECK_CUTOFF || "19:30";
+  const checkInCutoffLabel = process.env.CHECKIN_CUTOFF || "09:45";
   const googleEmail = (process.env.GOOGLE_EMAIL || "").trim();
   const googlePassword = process.env.GOOGLE_PASSWORD || "";
   const browserExecutablePath = resolveBrowserExecutablePath(
     process.env.BROWSER_EXECUTABLE_PATH,
   );
   const cutoffMinutes = parseCutoff(cutoffLabel);
+  const checkInCutoffMinutes = parseCutoff(checkInCutoffLabel);
 
   if (cutoffMinutes === null) {
     throw new AppError("CONFIG_INVALID", "CHECK_CUTOFF must use HH:mm format");
+  }
+
+  if (checkInCutoffMinutes === null) {
+    throw new AppError(
+      "CONFIG_INVALID",
+      "CHECKIN_CUTOFF must use HH:mm format",
+    );
   }
 
   if (selectedMode === "start") {
@@ -162,9 +177,25 @@ function loadConfig(mode) {
       throw new AppError("CONFIG_INVALID", "CHECK_CRON must not be empty");
     }
 
+    if (checkInCronExpressions.length === 0) {
+      throw new AppError("CONFIG_INVALID", "CHECKIN_CRON must not be empty");
+    }
+
     for (const expr of cronExpressions) {
       if (!cron.validate(expr)) {
-        throw new AppError("CONFIG_INVALID", `CHECK_CRON expression is invalid: "${expr}"`);
+        throw new AppError(
+          "CONFIG_INVALID",
+          `CHECK_CRON expression is invalid: "${expr}"`,
+        );
+      }
+    }
+
+    for (const expr of checkInCronExpressions) {
+      if (!cron.validate(expr)) {
+        throw new AppError(
+          "CONFIG_INVALID",
+          `CHECKIN_CRON expression is invalid: "${expr}"`,
+        );
       }
     }
   }
@@ -194,6 +225,7 @@ function loadConfig(mode) {
     watchUsers,
     timezone,
     cronExpressions,
+    checkInCronExpressions,
     cutoffLabel,
     cutoffMinutes,
     sessionPath: path.resolve(
@@ -254,6 +286,10 @@ function loadConfig(mode) {
           max: 60000,
         },
       ),
+    },
+    checkIn: {
+      cutoffLabel: checkInCutoffLabel,
+      cutoffMinutes: checkInCutoffMinutes,
     },
     auth: {
       googleEmail,

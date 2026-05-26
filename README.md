@@ -1,13 +1,14 @@
 # HQ Bot
 
-Google Chat 打卡檢查服務。每天 19:30（Asia/Taipei）檢查指定人員是否「有上班但未在 19:30 前下班」，若符合條件即送 Telegram 告警。
+Google Chat 打卡檢查服務。週一到週五 09:45（Asia/Taipei）檢查指定人員是否未完成上班打卡；每天 19:30 起檢查指定人員是否「有上班但未在 19:30 前下班」。符合條件時會送 Telegram 告警。
 
 ## Features
 
-- 每日固定時間檢查（預設 `30 19 * * *`）
+- 上班打卡檢查預設週一到週五 `45 9 * * 1-5`，會 retry 並累積已確認人員後再通知
+- 下班打卡檢查預設 `30 19 * * *`、`0 21 * * *`、`0 23 * * *`
 - 監控指定人員（預設 `HQT - Jeremy,HQT - Conner`）
 - 支援多種日期與時間格式（例如 `5月7日`、`05月07日`、`5/7`、`1924`、`20：10`）
-- 每次排程最多重複檢查 3 次，已確認下班者會先記錄，未確認者才繼續檢查
+- 每次排程最多重複檢查 3 次，已確認上班/下班者會先記錄，未確認者才繼續檢查
 - 支援兩種登入：人工 session 授權或 `.env` 帳密自動登入
 - 支援在 `WATCH_USERS` 多行設定使用者與可選 Telegram tag（例如 `HQT - Jeremy, @JSanXiao`）
 - 若有上班打卡者皆完成下班打卡，會主動發送「全員打卡完成」訊息
@@ -59,6 +60,12 @@ npm run auth
 
 ```bash
 npm run check
+```
+
+手動測試上班打卡檢查：
+
+```bash
+npm run checkin
 ```
 
 6. 啟動排程
@@ -205,9 +212,11 @@ docker compose logs -f hq-bot
 - `GOOGLE_CHAT_URL`: 要監控的群組 URL
 - `WATCH_USERS`: 支援舊版逗號分隔，或新版多行格式（每行可加 `@tag`）
 - `TZ`: 時區，預設 `Asia/Taipei`
-- `CHECK_CRON`: cron 表示式，預設 `30 19 * * *`
+- `CHECK_CRON`: 下班打卡檢查 cron，預設 `30 19 * * *,0 21 * * *,0 23 * * *`
 - `CHECK_CUTOFF`: 規則截止時間，預設 `19:30`
-- `CHECK_ATTEMPTS`: 每次檢查最多重複讀取 Google Chat 次數，預設 `3`
+- `CHECKIN_CRON`: 上班打卡檢查 cron，預設 `45 9 * * 1-5`
+- `CHECKIN_CUTOFF`: 上班打卡截止時間，預設 `09:45`
+- `CHECK_ATTEMPTS`: 每次上班/下班檢查最多重複讀取 Google Chat 次數，預設 `3`
 - `CHECK_RETRY_WAIT_MS`: 每次重查間隔毫秒數，預設 `2000`
 - `SESSION_PATH`: 瀏覽器 session 路徑
 - `BROWSER_TYPE`: `chromium`、`firefox`、`webkit`（預設 `chromium`）
