@@ -4,23 +4,62 @@ const {
   runCheckInCheck,
   safeSendErrorAlert,
 } = require("./checkService");
+const { AppError } = require("./errors");
+
+const DEFAULT_RUN_TIMEOUT_MS = 10 * 60 * 1000;
+
+function getRunTimeoutMs(config) {
+  return config.check?.runTimeoutMs || DEFAULT_RUN_TIMEOUT_MS;
+}
+
+function withTimeout(promise, timeoutMs, buildError) {
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(buildError());
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
 
 function startScheduler(config) {
-  let isRunning = false;
+  let runningRunId = null;
+  let nextRunId = 0;
 
   const run = async (name, checkFn) => {
-    if (isRunning) {
+    if (runningRunId !== null) {
       console.warn(`Skip ${name} tick: previous check is still running.`);
       return;
     }
 
-    isRunning = true;
+    nextRunId += 1;
+    const runId = nextRunId;
+    runningRunId = runId;
+    const timeoutMs = getRunTimeoutMs(config);
+
     try {
-      await checkFn(config, "scheduler");
+      await withTimeout(
+        checkFn(config, "scheduler"),
+        timeoutMs,
+        () =>
+          new AppError(
+            "CHECK_TIMEOUT",
+            `Scheduled ${name} check exceeded ${timeoutMs}ms and released the scheduler lock.`,
+          ),
+      );
     } catch (error) {
       console.error(`Scheduled ${name} check failed:`, error.message);
+      if (error.code === "CHECK_TIMEOUT") {
+        await safeSendErrorAlert(config, `scheduled_${name}`, error);
+      }
     } finally {
-      isRunning = false;
+      if (runningRunId === runId) {
+        runningRunId = null;
+      }
     }
   };
 
@@ -60,5 +99,7 @@ function startScheduler(config) {
 }
 
 module.exports = {
+  getRunTimeoutMs,
   startScheduler,
+  withTimeout,
 };

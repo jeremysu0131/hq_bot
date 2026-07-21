@@ -286,6 +286,15 @@ function loadConfig(mode) {
           max: 60000,
         },
       ),
+      runTimeoutMs: parseInteger(
+        "CHECK_RUN_TIMEOUT_MS",
+        process.env.CHECK_RUN_TIMEOUT_MS,
+        600000,
+        {
+          min: 60000,
+          max: 3600000,
+        },
+      ),
     },
     checkIn: {
       cutoffLabel: checkInCutoffLabel,

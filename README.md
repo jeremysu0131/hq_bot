@@ -218,6 +218,7 @@ docker compose logs -f hq-bot
 - `CHECKIN_CUTOFF`: 上班打卡截止時間，預設 `09:45`
 - `CHECK_ATTEMPTS`: 每次上班/下班檢查最多重複讀取 Google Chat 次數，預設 `3`
 - `CHECK_RETRY_WAIT_MS`: 每次重查間隔毫秒數，預設 `2000`
+- `CHECK_RUN_TIMEOUT_MS`: 單次排程檢查最大執行時間，逾時會釋放排程鎖，預設 `600000`
 - `SESSION_PATH`: 瀏覽器 session 路徑
 - `BROWSER_TYPE`: `chromium`、`firefox`、`webkit`（預設 `chromium`）
 - `BROWSER_CHANNEL`: 瀏覽器 channel（例如 `chrome`、`msedge`，主要用於 chromium）
