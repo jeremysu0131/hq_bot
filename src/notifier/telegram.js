@@ -33,7 +33,7 @@ async function sendTelegramMessage(config, message) {
 }
 
 function buildAttendanceAlert(payload) {
-  const { targetDateLabel, chatUrl, alertUsers } = payload;
+  const { targetDateLabel, cutoffLabel, chatUrl, alertUsers } = payload;
   const userList = alertUsers
     .map(
       (item) =>
@@ -44,7 +44,7 @@ function buildAttendanceAlert(payload) {
   return [
     "[HQ Bot] 下班沒打卡提醒",
     `日期: ${targetDateLabel}`,
-    "規則: 有上班打卡但尚未下班打卡",
+    `規則: ${cutoffLabel}（含）前曾發送上班圖片，但之後尚未發送下班圖片`,
     "未打卡下班名單:",
     userList,
     `群組: ${chatUrl}`,
@@ -52,7 +52,7 @@ function buildAttendanceAlert(payload) {
 }
 
 function buildCheckInAttendanceAlert(payload) {
-  const { targetDateLabel, cutoffLabel, chatUrl, alertUsers } = payload;
+  const { targetDateLabel, checkTimeLabel, chatUrl, alertUsers } = payload;
   const userList = alertUsers
     .map(
       (item) =>
@@ -63,7 +63,7 @@ function buildCheckInAttendanceAlert(payload) {
   return [
     "[HQ Bot] 上班沒打卡提醒",
     `日期: ${targetDateLabel}`,
-    `規則: ${cutoffLabel} 前需完成上班打卡`,
+    `規則: 截至 ${checkTimeLabel} 尚未發送上班圖片`,
     "未打卡上班名單:",
     userList,
     `群組: ${chatUrl}`,

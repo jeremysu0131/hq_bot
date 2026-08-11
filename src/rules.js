@@ -1,34 +1,59 @@
-function evaluateAttendance(entries, options) {
-  const { watchUsers } = options;
+function entriesForUser(entries, user) {
+  return entries
+    .filter((entry) => entry.userToken === user.token)
+    .sort((left, right) => left.sentAt.localeCompare(right.sentAt));
+}
 
+function evaluateCheckIns(entries, options) {
+  const { watchUsers, asOfMinutes } = options;
   const statuses = watchUsers.map((user) => {
-    const userEntries = entries
-      .filter((entry) => entry.userToken === user.token)
-      .sort((left, right) => left.minutes - right.minutes);
-
-    const checkIns = userEntries.filter((entry) => entry.action === "checkin");
-
-    const firstCheckIn = checkIns.length > 0 ? checkIns[0].minutes : null;
-    const skipCheckoutCheck = firstCheckIn === null;
-    const checkOuts = skipCheckoutCheck
-      ? []
-      : userEntries.filter((entry) => entry.action === "checkout");
-    const validCheckOut = skipCheckoutCheck
-      ? null
-      : checkOuts.find((entry) => entry.minutes >= firstCheckIn) || null;
-
-    const shouldAlert = !skipCheckoutCheck && !validCheckOut;
+    const userEntries = entriesForUser(entries, user);
+    const checkIn =
+      userEntries.find((entry) => entry.minutes <= asOfMinutes) || null;
 
     return {
       userName: user.name,
       userToken: user.token,
       mentionTag: user.mentionTag || "",
-      shouldAlert,
+      shouldAlert: checkIn === null,
+      checkInMinutes: checkIn ? checkIn.minutes : null,
+      entries: userEntries,
+    };
+  });
+
+  const alertUsers = statuses.filter((status) => status.shouldAlert);
+  const checkedUsers = statuses.filter((status) => !status.shouldAlert);
+  return {
+    statuses,
+    alertUsers,
+    checkedUsers,
+    allCheckedIn: alertUsers.length === 0,
+  };
+}
+
+function evaluateAttendance(entries, options) {
+  const { watchUsers, checkInCutoffMinutes, asOfMinutes } = options;
+  const statuses = watchUsers.map((user) => {
+    const userEntries = entriesForUser(entries, user);
+    const checkIn =
+      userEntries.find((entry) => entry.minutes <= checkInCutoffMinutes) || null;
+    const checkOut = checkIn
+      ? userEntries.find(
+          (entry) =>
+            entry.minutes > checkInCutoffMinutes &&
+            entry.minutes <= asOfMinutes,
+        ) || null
+      : null;
+    const skipCheckoutCheck = checkIn === null;
+
+    return {
+      userName: user.name,
+      userToken: user.token,
+      mentionTag: user.mentionTag || "",
+      shouldAlert: !skipCheckoutCheck && checkOut === null,
       skipCheckoutCheck,
-      firstCheckIn,
-      checkOutMinutes: validCheckOut ? validCheckOut.minutes : null,
-      checkIns,
-      checkOuts,
+      checkInMinutes: checkIn ? checkIn.minutes : null,
+      checkOutMinutes: checkOut ? checkOut.minutes : null,
       entries: userEntries,
     };
   });
@@ -39,7 +64,6 @@ function evaluateAttendance(entries, options) {
   const checkedUsers = activeUsers.filter(
     (status) => status.checkOutMinutes !== null,
   );
-  const allCheckedOut = activeUsers.length > 0 && alertUsers.length === 0;
 
   return {
     statuses,
@@ -47,41 +71,7 @@ function evaluateAttendance(entries, options) {
     activeUsers,
     skippedUsers,
     checkedUsers,
-    allCheckedOut,
-  };
-}
-
-function evaluateCheckIns(entries, options) {
-  const { watchUsers, cutoffMinutes } = options;
-
-  const statuses = watchUsers.map((user) => {
-    const userEntries = entries
-      .filter((entry) => entry.userToken === user.token)
-      .sort((left, right) => left.minutes - right.minutes);
-
-    const checkIns = userEntries.filter((entry) => entry.action === "checkin");
-    const validCheckIn =
-      checkIns.find((entry) => entry.minutes <= cutoffMinutes) || null;
-
-    return {
-      userName: user.name,
-      userToken: user.token,
-      mentionTag: user.mentionTag || "",
-      shouldAlert: validCheckIn === null,
-      checkInMinutes: validCheckIn ? validCheckIn.minutes : null,
-      checkIns,
-      entries: userEntries,
-    };
-  });
-
-  const alertUsers = statuses.filter((status) => status.shouldAlert);
-  const checkedUsers = statuses.filter((status) => !status.shouldAlert);
-
-  return {
-    statuses,
-    alertUsers,
-    checkedUsers,
-    allCheckedIn: alertUsers.length === 0,
+    allCheckedOut: activeUsers.length > 0 && alertUsers.length === 0,
   };
 }
 

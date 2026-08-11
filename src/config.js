@@ -59,7 +59,15 @@ function normalizeMentionTag(input) {
 }
 
 function parseWatchUsers(value) {
-  const source = String(value || "HQT - Jeremy,HQT - Conner")
+  const source = String(
+    value ||
+      `jeremy.j@spookyy.com, @JSanXiao
+conner.ch@spookyy.com, @Eason_Chung
+ichih.h@spookyy.com, @IchihBackend
+rosco.a@spookyy.com, @rosco_07
+shane.x@spookyy.com, @shane_hsien
+richard.lx@spookyy.com, @richardl0_0`,
+  )
     .replace(/\r/g, "")
     .trim();
   const isMultiLine = source.includes("\n");
@@ -89,14 +97,16 @@ function parseWatchUsers(value) {
       }
     }
 
-    const token = normalizeNameToken(name);
+    const email = name.trim().toLowerCase();
+    const token = email.includes("@") ? email : normalizeNameToken(name);
     if (!token || seen.has(token)) {
       continue;
     }
 
     seen.add(token);
     users.push({
-      name,
+      name: email.includes("@") ? email : name,
+      email: email.includes("@") ? email : "",
       token,
       mentionTag,
     });
@@ -141,29 +151,24 @@ function loadConfig(mode) {
   const chatUrl = process.env.GOOGLE_CHAT_URL;
   const timezone = process.env.TZ || "Asia/Taipei";
   const cronRaw =
-    process.env.CHECK_CRON || "30 19 * * *,0 21 * * *,0 23 * * *";
+    process.env.CHECK_CRON || "0 19 * * 1-5,30 19 * * 1-5,0 20 * * 1-5";
   const cronExpressions = cronRaw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  const checkInCronRaw = process.env.CHECKIN_CRON || "45 9 * * 1-5";
+  const checkInCronRaw =
+    process.env.CHECKIN_CRON || "25 9 * * 1-5,28 9 * * 1-5";
   const checkInCronExpressions = checkInCronRaw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  const cutoffLabel = process.env.CHECK_CUTOFF || "19:30";
-  const checkInCutoffLabel = process.env.CHECKIN_CUTOFF || "09:45";
+  const checkInCutoffLabel = process.env.CHECKIN_CUTOFF || "09:30";
   const googleEmail = (process.env.GOOGLE_EMAIL || "").trim();
   const googlePassword = process.env.GOOGLE_PASSWORD || "";
   const browserExecutablePath = resolveBrowserExecutablePath(
     process.env.BROWSER_EXECUTABLE_PATH,
   );
-  const cutoffMinutes = parseCutoff(cutoffLabel);
   const checkInCutoffMinutes = parseCutoff(checkInCutoffLabel);
-
-  if (cutoffMinutes === null) {
-    throw new AppError("CONFIG_INVALID", "CHECK_CUTOFF must use HH:mm format");
-  }
 
   if (checkInCutoffMinutes === null) {
     throw new AppError(
@@ -226,8 +231,6 @@ function loadConfig(mode) {
     timezone,
     cronExpressions,
     checkInCronExpressions,
-    cutoffLabel,
-    cutoffMinutes,
     sessionPath: path.resolve(
       process.cwd(),
       process.env.SESSION_PATH || "./state/google-session.json",

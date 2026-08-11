@@ -283,34 +283,197 @@ async function ensureChatIsReady(page, config, options = {}) {
   });
 }
 
-async function collectChatText(page, config) {
-  const snapshots = [];
+async function readVisibleMessageSnapshot(page) {
+  return page.evaluate(() => {
+    const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+    const roots = Array.from(
+      document.querySelectorAll("[role='group'][data-id]"),
+    );
 
-  for (let round = 0; round < config.chat.scrollRounds; round += 1) {
-    const snapshot = await page.evaluate(() => document.body?.innerText || "");
-    snapshots.push(snapshot);
+    function allElements(root) {
+      return [root, ...Array.from(root.querySelectorAll("*"))];
+    }
 
-    const moved = await page.evaluate(() => {
-      const candidates = Array.from(
-        document.querySelectorAll(
-          "[role='main'], [role='list'], [data-message-id]",
-        ),
-      );
+    function findEmail(root) {
+      const scopes = [
+        root,
+        root.closest("[role='listitem']"),
+        root.parentElement,
+      ].filter(Boolean);
 
-      let target = null;
-      for (const element of candidates) {
-        if (element.scrollHeight - element.clientHeight > 120) {
-          target = element;
-          break;
+      for (const scope of scopes) {
+        for (const element of allElements(scope)) {
+          for (const name of [
+            "data-hovercard-id",
+            "data-email",
+            "email",
+            "aria-label",
+            "title",
+          ]) {
+            const match = String(element.getAttribute(name) || "").match(
+              emailPattern,
+            );
+            if (match) {
+              return match[0].toLowerCase();
+            }
+          }
         }
       }
+
+      return "";
+    }
+
+    function parseTimestampValue(value) {
+      const source = String(value || "").trim();
+      if (!source) {
+        return "";
+      }
+
+      if (/^\d{13}$/.test(source)) {
+        return new Date(Number(source)).toISOString();
+      }
+
+      if (/^\d{10}$/.test(source)) {
+        return new Date(Number(source) * 1000).toISOString();
+      }
+
+      const parsed = Date.parse(source);
+      return Number.isNaN(parsed) ? "" : new Date(parsed).toISOString();
+    }
+
+    function findTimestamp(root) {
+      const scopes = [
+        root,
+        root.closest("c-wiz[data-local-sort-time-msec]"),
+        root.closest("[role='listitem']"),
+        root.parentElement,
+      ].filter(Boolean);
+
+      for (const scope of scopes) {
+        for (const element of allElements(scope)) {
+          for (const name of [
+            "datetime",
+            "data-absolute-timestamp",
+            "data-timestamp",
+            "data-time",
+            "data-local-sort-time-msec",
+          ]) {
+            const timestamp = parseTimestampValue(element.getAttribute(name));
+            if (timestamp) {
+              return timestamp;
+            }
+          }
+        }
+      }
+
+      return "";
+    }
+
+    function isUploadedImage(image) {
+      const attachmentContainer = image.closest(
+        "[data-attachment-id], [data-attachment-type], [aria-label*='attachment' i], [aria-label*='附件']",
+      );
+      const excluded = image.closest(
+        "[data-emoji], [data-reaction], [aria-label*='profile' i], [aria-label*='個人資料'], [aria-label*='sticker' i], [aria-label*='貼圖']",
+      );
+      const profileLink = image.closest("[data-hovercard-id]");
+      if (excluded || (profileLink && !attachmentContainer)) {
+        return false;
+      }
+
+      const descriptor = [
+        image.getAttribute("alt"),
+        image.getAttribute("aria-label"),
+        image.getAttribute("data-tooltip"),
+        image.getAttribute("src"),
+        image.closest("[data-attachment-id]")?.getAttribute("data-attachment-id"),
+        image.closest("[data-attachment-type]")?.getAttribute("data-attachment-type"),
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const hasAttachmentContainer = Boolean(attachmentContainer);
+      const looksLikeUploadedImage =
+        /(?:^|\b)(image|photo)(?:\b|$)|圖片|相片/i.test(descriptor) ||
+        /chat_attachment|chat\.googleusercontent\.com/i.test(descriptor);
+
+      return hasAttachmentContainer || looksLikeUploadedImage;
+    }
+
+    const messages = roots.map((root) => ({
+      id: root.getAttribute("data-id") || "",
+      senderEmail: findEmail(root),
+      sentAt: findTimestamp(root),
+      hasUploadedImage: Array.from(root.querySelectorAll("img")).some(
+        isUploadedImage,
+      ),
+    }));
+
+    return {
+      containerCount: roots.length,
+      mainTextLength: (document.querySelector("[role='main']")?.innerText || "")
+        .trim().length,
+      messages,
+    };
+  });
+}
+
+function mergeMessageSnapshots(target, snapshot) {
+  for (const message of snapshot.messages) {
+    if (!message.id) {
+      continue;
+    }
+
+    const previous = target.get(message.id) || {};
+    target.set(message.id, {
+      id: message.id,
+      senderEmail: message.senderEmail || previous.senderEmail || "",
+      sentAt: message.sentAt || previous.sentAt || "",
+      hasUploadedImage: Boolean(
+        message.hasUploadedImage || previous.hasUploadedImage,
+      ),
+    });
+  }
+}
+
+async function collectChatMessages(page, config) {
+  const messagesById = new Map();
+  let containerCount = 0;
+  let mainTextLength = 0;
+
+  for (let round = 0; round < config.chat.scrollRounds; round += 1) {
+    const snapshot = await readVisibleMessageSnapshot(page);
+    containerCount = Math.max(containerCount, snapshot.containerCount);
+    mainTextLength = Math.max(mainTextLength, snapshot.mainTextLength || 0);
+    mergeMessageSnapshots(messagesById, snapshot);
+
+    const moved = await page.evaluate(() => {
+      const main = document.querySelector("[role='main']");
+      const candidates = main
+        ? [main, ...Array.from(main.querySelectorAll("*"))]
+        : [];
+      const target = candidates
+        .filter(
+          (element) =>
+            element.clientHeight > 100 &&
+            element.scrollHeight - element.clientHeight > 120,
+        )
+        .sort(
+          (left, right) =>
+            right.scrollHeight -
+            right.clientHeight -
+            (left.scrollHeight - left.clientHeight),
+        )[0];
 
       if (!target) {
         return false;
       }
 
       const previousTop = target.scrollTop;
-      target.scrollTop = 0;
+      target.scrollTop = Math.max(
+        0,
+        previousTop - Math.max(400, Math.floor(target.clientHeight * 0.8)),
+      );
       return previousTop > 0;
     });
 
@@ -321,10 +484,30 @@ async function collectChatText(page, config) {
     await page.waitForTimeout(config.chat.scrollWaitMs);
   }
 
-  return snapshots.join("\n");
+  const messages = Array.from(messagesById.values());
+  const completeMessages = messages.filter(
+    (message) => message.senderEmail && message.sentAt,
+  );
+  const incompleteImageMessages = messages.filter(
+    (message) =>
+      message.hasUploadedImage && (!message.senderEmail || !message.sentAt),
+  );
+
+  if (
+    (mainTextLength > 0 && containerCount === 0) ||
+    (containerCount > 0 && completeMessages.length === 0) ||
+    incompleteImageMessages.length > 0
+  ) {
+    throw new AppError(
+      "CHAT_DOM_PARSE_FAILED",
+      `Google Chat DOM extraction was incomplete (containers=${containerCount}, complete=${completeMessages.length}, incompleteImages=${incompleteImageMessages.length}).`,
+    );
+  }
+
+  return completeMessages;
 }
 
-async function fetchChatRawText(config) {
+async function fetchChatMessages(config) {
   const hasSession = fs.existsSync(config.sessionPath);
   const { browser, context } = await launchBrowserContext(config, {
     ignoreStoredSession: !hasSession,
@@ -337,7 +520,7 @@ async function fetchChatRawText(config) {
       allowAutoLogin: true,
       saveSessionAfterLogin: true,
     });
-    return await collectChatText(page, config);
+    return await collectChatMessages(page, config);
   } finally {
     await context.close();
     await browser.close();
@@ -345,10 +528,13 @@ async function fetchChatRawText(config) {
 }
 
 module.exports = {
+  collectChatMessages,
   fillFirstVisibleInput,
+  fetchChatMessages,
   isGoogleCaptchaChallenge,
   performCredentialLogin,
-  fetchChatRawText,
   launchBrowserContext,
+  mergeMessageSnapshots,
+  readVisibleMessageSnapshot,
   ensureChatIsReady,
 };

@@ -23,8 +23,12 @@ const { getRunTimeoutMs, startScheduler } = require("../src/scheduler");
 function buildConfig() {
   return {
     timezone: "Asia/Taipei",
-    checkInCronExpressions: ["45 9 * * 1-5"],
-    cronExpressions: ["30 19 * * *"],
+    checkInCronExpressions: ["25 9 * * 1-5", "28 9 * * 1-5"],
+    cronExpressions: [
+      "0 19 * * 1-5",
+      "30 19 * * 1-5",
+      "0 20 * * 1-5",
+    ],
     check: {
       runTimeoutMs: 1000,
     },
@@ -61,7 +65,7 @@ describe("startScheduler", () => {
     const stuckRun = tasks[0].callback();
     await flushPromises();
 
-    await tasks[1].callback();
+    await tasks[2].callback();
     expect(runCheck).not.toHaveBeenCalled();
     expect(console.warn).toHaveBeenCalledWith(
       "Skip check-out tick: previous check is still running.",
@@ -70,7 +74,7 @@ describe("startScheduler", () => {
     jest.advanceTimersByTime(1000);
     await stuckRun;
 
-    await tasks[1].callback();
+    await tasks[2].callback();
 
     expect(runCheck).toHaveBeenCalledTimes(1);
     expect(console.error).toHaveBeenCalledWith(
@@ -87,16 +91,34 @@ describe("startScheduler", () => {
   test("schedules check-in and check-out tasks with configured timezone", () => {
     const tasks = startScheduler(buildConfig());
 
-    expect(tasks).toHaveLength(2);
+    expect(tasks).toHaveLength(5);
     expect(cron.schedule).toHaveBeenNthCalledWith(
       1,
-      "45 9 * * 1-5",
+      "25 9 * * 1-5",
       expect.any(Function),
       { timezone: "Asia/Taipei" },
     );
     expect(cron.schedule).toHaveBeenNthCalledWith(
       2,
-      "30 19 * * *",
+      "28 9 * * 1-5",
+      expect.any(Function),
+      { timezone: "Asia/Taipei" },
+    );
+    expect(cron.schedule).toHaveBeenNthCalledWith(
+      3,
+      "0 19 * * 1-5",
+      expect.any(Function),
+      { timezone: "Asia/Taipei" },
+    );
+    expect(cron.schedule).toHaveBeenNthCalledWith(
+      4,
+      "30 19 * * 1-5",
+      expect.any(Function),
+      { timezone: "Asia/Taipei" },
+    );
+    expect(cron.schedule).toHaveBeenNthCalledWith(
+      5,
+      "0 20 * * 1-5",
       expect.any(Function),
       { timezone: "Asia/Taipei" },
     );

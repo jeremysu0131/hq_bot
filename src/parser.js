@@ -1,73 +1,49 @@
-const {
-  combineWrappedLines,
-  containsAttendanceAction,
-  normalizeNameToken,
-  toHalfWidth,
-} = require("./utils/text");
-const {
-  isSameMonthDay,
-  minutesToLabel,
-  parseDateMonthDay,
-  parseTimeMinutes,
-} = require("./utils/time");
+const dayjs = require("./dayjs");
 
-function resolveWatchUser(line, watchUsers) {
-  const normalized = normalizeNameToken(line);
-
-  for (const user of watchUsers) {
-    if (normalized.includes(user.token)) {
-      return user;
-    }
-  }
-
-  return null;
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
-function parseAttendanceEntries(rawText, options) {
-  const { targetDate, watchUsers } = options;
-  const lines = combineWrappedLines(rawText);
+function parseImageAttendanceEntries(messages, options) {
+  const { targetDate, timezone, watchUsers } = options;
+  const targetDateLabel = targetDate.format("YYYY-MM-DD");
+  const usersByEmail = new Map(
+    watchUsers.map((user) => [normalizeEmail(user.email || user.name), user]),
+  );
   const entries = [];
 
-  for (const originalLine of lines) {
-    const line = toHalfWidth(originalLine);
-
-    if (!containsAttendanceAction(line)) {
+  for (const message of messages || []) {
+    if (!message.hasUploadedImage) {
       continue;
     }
 
-    const monthDay = parseDateMonthDay(line);
-    if (!monthDay || !isSameMonthDay(monthDay, targetDate)) {
+    const email = normalizeEmail(message.senderEmail);
+    const user = usersByEmail.get(email);
+    if (!user || !message.sentAt) {
       continue;
     }
 
-    const user = resolveWatchUser(line, watchUsers);
-    if (!user) {
+    const sentAt = dayjs(message.sentAt).tz(timezone);
+    if (!sentAt.isValid() || sentAt.format("YYYY-MM-DD") !== targetDateLabel) {
       continue;
     }
-
-    const minutes = parseTimeMinutes(line);
-    if (minutes === null) {
-      continue;
-    }
-
-    const action = /下班/.test(line) ? "checkout" : "checkin";
 
     entries.push({
-      action,
-      minutes,
-      timeLabel: minutesToLabel(minutes),
+      id: String(message.id),
+      minutes: sentAt.hour() * 60 + sentAt.minute(),
+      sentAt: sentAt.toISOString(),
       userName: user.name,
       userToken: user.token,
-      rawLine: originalLine,
     });
   }
 
   return {
-    entries: entries.sort((left, right) => left.minutes - right.minutes),
-    scannedLines: lines.length,
+    entries: entries.sort((left, right) => left.sentAt.localeCompare(right.sentAt)),
+    scannedMessages: (messages || []).length,
   };
 }
 
 module.exports = {
-  parseAttendanceEntries,
+  normalizeEmail,
+  parseImageAttendanceEntries,
 };

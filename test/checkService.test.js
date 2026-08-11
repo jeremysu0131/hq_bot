@@ -1,8 +1,5 @@
-const dayjs = require("../src/dayjs");
-const { normalizeNameToken } = require("../src/utils/text");
-
 jest.mock("../src/chatClient", () => ({
-  fetchChatRawText: jest.fn(),
+  fetchChatMessages: jest.fn(),
 }));
 
 jest.mock("../src/notifier/telegram", () => {
@@ -13,19 +10,21 @@ jest.mock("../src/notifier/telegram", () => {
   };
 });
 
-const { fetchChatRawText } = require("../src/chatClient");
+const { fetchChatMessages } = require("../src/chatClient");
 const { sendTelegramMessage } = require("../src/notifier/telegram");
 const { runCheck, runCheckInCheck } = require("../src/checkService");
 
 const watchUsers = [
   {
-    name: "HQT - Jeremy",
-    token: normalizeNameToken("HQT - Jeremy"),
+    name: "jeremy.j@spookyy.com",
+    email: "jeremy.j@spookyy.com",
+    token: "jeremy.j@spookyy.com",
     mentionTag: "@JSanXiao",
   },
   {
-    name: "HQT - Conner",
-    token: normalizeNameToken("HQT - Conner"),
+    name: "conner.ch@spookyy.com",
+    email: "conner.ch@spookyy.com",
+    token: "conner.ch@spookyy.com",
     mentionTag: "@Eason_Chung",
   },
 ];
@@ -34,17 +33,9 @@ function buildConfig() {
   return {
     timezone: "Asia/Taipei",
     watchUsers,
-    cutoffLabel: "19:30",
-    cutoffMinutes: 1170,
     chatUrl: "https://chat.google.com/example",
-    check: {
-      attempts: 3,
-      retryWaitMs: 0,
-    },
-    checkIn: {
-      cutoffLabel: "09:45",
-      cutoffMinutes: 585,
-    },
+    check: { attempts: 3, retryWaitMs: 0 },
+    checkIn: { cutoffLabel: "09:30", cutoffMinutes: 570 },
     alerts: {
       onErrors: true,
       telegramToken: "token",
@@ -53,13 +44,18 @@ function buildConfig() {
   };
 }
 
-function todayLabel() {
-  const now = dayjs().tz("Asia/Taipei");
-  return `${now.month() + 1}月${now.date()}日`;
+function image(id, senderEmail, taipeiTime) {
+  return {
+    id,
+    senderEmail,
+    sentAt: `2026-08-11T${taipeiTime}:00+08:00`,
+    hasUploadedImage: true,
+  };
 }
 
-describe("runCheck retry flow", () => {
+describe("image check service", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     jest.spyOn(console, "log").mockImplementation(() => {});
     jest.spyOn(console, "warn").mockImplementation(() => {});
@@ -67,163 +63,74 @@ describe("runCheck retry flow", () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
-  test("keeps checked-out users and retries only unresolved users before alerting", async () => {
-    const dateLabel = todayLabel();
-
-    fetchChatRawText
-      .mockResolvedValueOnce(`
-HQT - Jeremy ${dateLabel}，09:01 上班
-HQT - Jeremy ${dateLabel}，18:30 下班
-HQT - Conner ${dateLabel}，09:12 上班
-`)
-      .mockResolvedValueOnce(`
-HQT - Conner ${dateLabel}，09:12 上班
-`)
-      .mockResolvedValueOnce(`
-HQT - Conner ${dateLabel}，09:12 上班
-`);
+  test("retries unresolved checkout users and alerts with email and tag", async () => {
+    jest.setSystemTime(new Date("2026-08-11T11:00:00.000Z"));
+    const snapshot = [
+      image("j-in", "jeremy.j@spookyy.com", "09:20"),
+      image("j-out", "jeremy.j@spookyy.com", "18:30"),
+      image("c-in", "conner.ch@spookyy.com", "09:25"),
+    ];
+    fetchChatMessages.mockResolvedValue(snapshot);
 
     const result = await runCheck(buildConfig(), "test");
 
-    expect(fetchChatRawText).toHaveBeenCalledTimes(3);
-    expect(result.evaluation.checkedUsers.map((item) => item.userName)).toEqual([
-      "HQT - Jeremy",
-    ]);
+    expect(fetchChatMessages).toHaveBeenCalledTimes(3);
     expect(result.evaluation.alertUsers.map((item) => item.userName)).toEqual([
-      "HQT - Conner",
+      "conner.ch@spookyy.com",
     ]);
     expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
-
-    const sentMessage = sendTelegramMessage.mock.calls[0][1];
-    expect(sentMessage).toContain("HQT - Conner @Eason_Chung");
-    expect(sentMessage).not.toContain("HQT - Jeremy @JSanXiao");
+    expect(sendTelegramMessage.mock.calls[0][1]).toContain(
+      "conner.ch@spookyy.com @Eason_Chung",
+    );
   });
 
-  test("stops retrying when all checked-in users are checked out", async () => {
-    const dateLabel = todayLabel();
-
-    fetchChatRawText
-      .mockResolvedValueOnce(`
-HQT - Jeremy ${dateLabel}，09:01 上班
-HQT - Jeremy ${dateLabel}，18:30 下班
-HQT - Conner ${dateLabel}，09:12 上班
-`)
-      .mockResolvedValueOnce(`
-HQT - Conner ${dateLabel}，18:36 下班
-`);
+  test("stops checkout retries when all active users have a later image", async () => {
+    jest.setSystemTime(new Date("2026-08-11T12:00:00.000Z"));
+    fetchChatMessages.mockResolvedValue([
+      image("j-in", "jeremy.j@spookyy.com", "09:30"),
+      image("j-out", "jeremy.j@spookyy.com", "09:31"),
+    ]);
 
     const result = await runCheck(buildConfig(), "test");
 
-    expect(fetchChatRawText).toHaveBeenCalledTimes(2);
+    expect(fetchChatMessages).toHaveBeenCalledTimes(1);
     expect(result.evaluation.alertUsers).toHaveLength(0);
-    expect(result.evaluation.checkedUsers.map((item) => item.userName)).toEqual([
-      "HQT - Jeremy",
-      "HQT - Conner",
+    expect(result.evaluation.skippedUsers.map((item) => item.userName)).toEqual([
+      "conner.ch@spookyy.com",
     ]);
     expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  test("alerts users still missing an image at the morning check", async () => {
+    jest.setSystemTime(new Date("2026-08-11T01:28:00.000Z"));
+    fetchChatMessages.mockResolvedValue([
+      image("j-in", "jeremy.j@spookyy.com", "09:25"),
+    ]);
+
+    const result = await runCheckInCheck(buildConfig(), "test");
+
+    expect(fetchChatMessages).toHaveBeenCalledTimes(3);
+    expect(result.evaluation.alertUsers.map((item) => item.userName)).toEqual([
+      "conner.ch@spookyy.com",
+    ]);
+    expect(sendTelegramMessage.mock.calls[0][1]).toContain("截至 09:28");
   });
 
   test("continues retrying after a Google Chat read failure", async () => {
-    const dateLabel = todayLabel();
-
-    fetchChatRawText.mockRejectedValueOnce(new Error("chat read failed"));
-    fetchChatRawText.mockResolvedValueOnce(`
-HQT - Jeremy ${dateLabel}，09:01 上班
-HQT - Jeremy ${dateLabel}，18:30 下班
-HQT - Conner ${dateLabel}，09:12 上班
-HQT - Conner ${dateLabel}，18:36 下班
-`);
-
-    const result = await runCheck(buildConfig(), "test");
-
-    expect(fetchChatRawText).toHaveBeenCalledTimes(2);
-    expect(result.parsed.attempts).toBe(2);
-    expect(result.parsed.successfulAttempts).toBe(1);
-    expect(result.evaluation.alertUsers).toHaveLength(0);
-    expect(result.evaluation.checkedUsers.map((item) => item.userName)).toEqual([
-      "HQT - Jeremy",
-      "HQT - Conner",
+    jest.setSystemTime(new Date("2026-08-11T01:28:00.000Z"));
+    fetchChatMessages.mockRejectedValueOnce(new Error("chat read failed"));
+    fetchChatMessages.mockResolvedValueOnce([
+      image("j-in", "jeremy.j@spookyy.com", "09:25"),
+      image("c-in", "conner.ch@spookyy.com", "09:27"),
     ]);
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
-  });
-});
-
-describe("runCheckInCheck", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    jest.spyOn(console, "log").mockImplementation(() => {});
-    jest.spyOn(console, "warn").mockImplementation(() => {});
-    sendTelegramMessage.mockResolvedValue({ sent: true });
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  test("keeps checked-in users and retries unresolved users before alerting", async () => {
-    const dateLabel = todayLabel();
-
-    fetchChatRawText
-      .mockResolvedValueOnce(`
-HQT - Jeremy ${dateLabel}，09:01 上班
-HQT - Conner ${dateLabel}，10:02 上班
-`)
-      .mockResolvedValueOnce(`
-HQT - Conner ${dateLabel}，10:02 上班
-`)
-      .mockResolvedValueOnce(`
-HQT - Conner ${dateLabel}，10:02 上班
-`);
 
     const result = await runCheckInCheck(buildConfig(), "test");
 
-    expect(fetchChatRawText).toHaveBeenCalledTimes(3);
-    expect(result.parsed.attempts).toBe(3);
-    expect(result.evaluation.checkedUsers.map((item) => item.userName)).toEqual([
-      "HQT - Jeremy",
-    ]);
-    expect(result.evaluation.alertUsers.map((item) => item.userName)).toEqual([
-      "HQT - Conner",
-    ]);
-    expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
-
-    const sentMessage = sendTelegramMessage.mock.calls[0][1];
-    expect(sentMessage).toContain("[HQ Bot] 上班沒打卡提醒");
-    expect(sentMessage).toContain("HQT - Conner @Eason_Chung");
-    expect(sentMessage).not.toContain("HQT - Jeremy @JSanXiao");
-  });
-
-  test("does not send Telegram when all users checked in before cutoff", async () => {
-    const dateLabel = todayLabel();
-
-    fetchChatRawText.mockResolvedValueOnce(`
-HQT - Jeremy ${dateLabel}，09:01 上班
-HQT - Conner ${dateLabel}，09:12 上班
-`);
-
-    const result = await runCheckInCheck(buildConfig(), "test");
-
-    expect(fetchChatRawText).toHaveBeenCalledTimes(1);
-    expect(result.evaluation.alertUsers).toHaveLength(0);
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
-  });
-
-  test("continues retrying after a Google Chat read failure", async () => {
-    const dateLabel = todayLabel();
-
-    fetchChatRawText.mockRejectedValueOnce(new Error("chat read failed"));
-    fetchChatRawText.mockResolvedValueOnce(`
-HQT - Jeremy ${dateLabel}，09:01 上班
-HQT - Conner ${dateLabel}，09:12 上班
-`);
-
-    const result = await runCheckInCheck(buildConfig(), "test");
-
-    expect(fetchChatRawText).toHaveBeenCalledTimes(2);
-    expect(result.parsed.attempts).toBe(2);
+    expect(fetchChatMessages).toHaveBeenCalledTimes(2);
     expect(result.parsed.successfulAttempts).toBe(1);
     expect(result.evaluation.alertUsers).toHaveLength(0);
     expect(sendTelegramMessage).not.toHaveBeenCalled();

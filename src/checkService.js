@@ -1,6 +1,6 @@
 const dayjs = require("./dayjs");
-const { fetchChatRawText } = require("./chatClient");
-const { parseAttendanceEntries } = require("./parser");
+const { fetchChatMessages } = require("./chatClient");
+const { parseImageAttendanceEntries } = require("./parser");
 const { evaluateAttendance, evaluateCheckIns } = require("./rules");
 const {
   buildAttendanceAlert,
@@ -20,34 +20,26 @@ function getRetryWaitMs(config) {
 }
 
 function wait(ms) {
-  if (ms <= 0) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  return ms <= 0
+    ? Promise.resolve()
+    : new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function toEntryKey(entry) {
-  return `${entry.userToken}:${entry.action}:${entry.minutes}`;
-}
-
-function appendUniqueEntries(target, entries, seenEntryKeys) {
+function appendUniqueEntries(target, entries, seenIds) {
   let added = 0;
-
   for (const entry of entries) {
-    const key = toEntryKey(entry);
-    if (seenEntryKeys.has(key)) {
+    if (seenIds.has(entry.id)) {
       continue;
     }
-
-    seenEntryKeys.add(key);
+    seenIds.add(entry.id);
     target.push(entry);
     added += 1;
   }
-
   return added;
+}
+
+function minutesAt(now) {
+  return now.hour() * 60 + now.minute();
 }
 
 function formatStatusLine(statuses) {
@@ -59,98 +51,75 @@ function formatStatusLine(statuses) {
     .join(", ");
 }
 
-function formatCheckInStatusLine(statuses) {
-  return statuses
-    .map(
-      (status) => `${status.userName}:${status.shouldAlert ? "ALERT" : "OK"}`,
-    )
-    .join(", ");
-}
-
-async function collectAttendanceWithRetries(
-  config,
-  now,
-  targetDateLabel,
-  trigger,
-) {
+async function collectImageAttendanceWithRetries(config, now, mode, trigger) {
   const attempts = getCheckAttempts(config);
   const retryWaitMs = getRetryWaitMs(config);
-  const checkedOutTokens = new Set();
-  const seenEntryKeys = new Set();
   const entries = [];
+  const seenIds = new Set();
   const attemptsLog = [];
-  let scannedLines = 0;
-  let evaluation = null;
+  let scannedMessages = 0;
   let successfulAttempts = 0;
+  let evaluation = null;
   let lastError = null;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const pendingUsers = config.watchUsers.filter(
-      (user) => !checkedOutTokens.has(user.token),
-    );
-
-    if (pendingUsers.length === 0) {
-      break;
-    }
-
     try {
-      const rawText = await fetchChatRawText(config);
-      const parsed = parseAttendanceEntries(rawText, {
+      const messages = await fetchChatMessages(config);
+      const parsed = parseImageAttendanceEntries(messages, {
         targetDate: now,
-        watchUsers: pendingUsers,
-      });
-      const addedEntries = appendUniqueEntries(
-        entries,
-        parsed.entries,
-        seenEntryKeys,
-      );
-
-      scannedLines += parsed.scannedLines;
-      successfulAttempts += 1;
-      evaluation = evaluateAttendance(entries, {
+        timezone: config.timezone,
         watchUsers: config.watchUsers,
       });
+      const addedEntries = appendUniqueEntries(entries, parsed.entries, seenIds);
+      scannedMessages += parsed.scannedMessages;
+      successfulAttempts += 1;
 
-      const newlyCheckedUsers = evaluation.checkedUsers.filter(
-        (status) => !checkedOutTokens.has(status.userToken),
+      evaluation =
+        mode === "checkin"
+          ? evaluateCheckIns(entries, {
+              watchUsers: config.watchUsers,
+              asOfMinutes: Math.min(
+                minutesAt(now),
+                config.checkIn.cutoffMinutes,
+              ),
+            })
+          : evaluateAttendance(entries, {
+              watchUsers: config.watchUsers,
+              checkInCutoffMinutes: config.checkIn.cutoffMinutes,
+              asOfMinutes: minutesAt(now),
+            });
+
+      const unresolvedUsers = evaluation.alertUsers.map(
+        (status) => status.userName,
       );
-
-      for (const status of newlyCheckedUsers) {
-        checkedOutTokens.add(status.userToken);
-      }
-
-      const unresolvedUsers = config.watchUsers.filter(
-        (user) => !checkedOutTokens.has(user.token),
-      );
-
       attemptsLog.push({
         attempt,
-        scannedLines: parsed.scannedLines,
+        scannedMessages: parsed.scannedMessages,
         parsedEntries: parsed.entries.length,
         addedEntries,
-        checkedUsers: newlyCheckedUsers.map((status) => status.userName),
-        unresolvedUsers: unresolvedUsers.map((user) => user.name),
+        unresolvedUsers,
       });
 
       console.log(
-        `[${targetDateLabel}] trigger=${trigger} attempt=${attempt}/${attempts} scanned=${parsed.scannedLines} entries=${parsed.entries.length} added=${addedEntries} newlyChecked=${newlyCheckedUsers.length} unresolved=${unresolvedUsers.length}`,
+        `[${now.format("YYYY-MM-DD")}] trigger=${trigger} mode=${mode} attempt=${attempt}/${attempts} scanned=${parsed.scannedMessages} images=${parsed.entries.length} added=${addedEntries} unresolved=${unresolvedUsers.length}`,
       );
+
+      const isComplete =
+        mode === "checkin"
+          ? unresolvedUsers.length === 0
+          : evaluation.activeUsers.length > 0 && unresolvedUsers.length === 0;
+      if (isComplete) {
+        break;
+      }
     } catch (error) {
       lastError = error;
-      attemptsLog.push({
-        attempt,
-        error,
-      });
-
+      attemptsLog.push({ attempt, error });
       console.warn(
-        `[${targetDateLabel}] trigger=${trigger} attempt=${attempt}/${attempts} failed: ${error.message || error}`,
+        `[${now.format("YYYY-MM-DD")}] trigger=${trigger} mode=${mode} attempt=${attempt}/${attempts} failed: ${error.message || error}`,
       );
     }
 
-    if (
-      attempt < attempts &&
-      config.watchUsers.some((user) => !checkedOutTokens.has(user.token))
-    ) {
+    if (attempt < attempts) {
       await wait(retryWaitMs);
     }
   }
@@ -161,113 +130,10 @@ async function collectAttendanceWithRetries(
 
   return {
     parsed: {
-      entries: entries.sort((left, right) => left.minutes - right.minutes),
-      scannedLines,
-      attempts: attemptsLog.length,
-      successfulAttempts,
-      attemptsLog,
-    },
-    evaluation,
-  };
-}
-
-async function collectCheckInsWithRetries(
-  config,
-  now,
-  targetDateLabel,
-  trigger,
-) {
-  const attempts = getCheckAttempts(config);
-  const retryWaitMs = getRetryWaitMs(config);
-  const checkedInTokens = new Set();
-  const seenEntryKeys = new Set();
-  const entries = [];
-  const attemptsLog = [];
-  let scannedLines = 0;
-  let evaluation = null;
-  let successfulAttempts = 0;
-  let lastError = null;
-
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const pendingUsers = config.watchUsers.filter(
-      (user) => !checkedInTokens.has(user.token),
-    );
-
-    if (pendingUsers.length === 0) {
-      break;
-    }
-
-    try {
-      const rawText = await fetchChatRawText(config);
-      const parsed = parseAttendanceEntries(rawText, {
-        targetDate: now,
-        watchUsers: pendingUsers,
-      });
-      const addedEntries = appendUniqueEntries(
-        entries,
-        parsed.entries,
-        seenEntryKeys,
-      );
-
-      scannedLines += parsed.scannedLines;
-      successfulAttempts += 1;
-      evaluation = evaluateCheckIns(entries, {
-        watchUsers: config.watchUsers,
-        cutoffMinutes: config.checkIn.cutoffMinutes,
-      });
-
-      const newlyCheckedUsers = evaluation.checkedUsers.filter(
-        (status) => !checkedInTokens.has(status.userToken),
-      );
-
-      for (const status of newlyCheckedUsers) {
-        checkedInTokens.add(status.userToken);
-      }
-
-      const unresolvedUsers = config.watchUsers.filter(
-        (user) => !checkedInTokens.has(user.token),
-      );
-
-      attemptsLog.push({
-        attempt,
-        scannedLines: parsed.scannedLines,
-        parsedEntries: parsed.entries.length,
-        addedEntries,
-        checkedUsers: newlyCheckedUsers.map((status) => status.userName),
-        unresolvedUsers: unresolvedUsers.map((user) => user.name),
-      });
-
-      console.log(
-        `[${targetDateLabel}] trigger=${trigger} checkin attempt=${attempt}/${attempts} scanned=${parsed.scannedLines} entries=${parsed.entries.length} added=${addedEntries} newlyChecked=${newlyCheckedUsers.length} unresolved=${unresolvedUsers.length}`,
-      );
-    } catch (error) {
-      lastError = error;
-      attemptsLog.push({
-        attempt,
-        error,
-      });
-
-      console.warn(
-        `[${targetDateLabel}] trigger=${trigger} checkin attempt=${attempt}/${attempts} failed: ${error.message || error}`,
-      );
-    }
-
-    if (
-      attempt < attempts &&
-      config.watchUsers.some((user) => !checkedInTokens.has(user.token))
-    ) {
-      await wait(retryWaitMs);
-    }
-  }
-
-  if (!evaluation) {
-    throw lastError;
-  }
-
-  return {
-    parsed: {
-      entries: entries.sort((left, right) => left.minutes - right.minutes),
-      scannedLines,
+      entries: entries.sort((left, right) =>
+        left.sentAt.localeCompare(right.sentAt),
+      ),
+      scannedMessages,
       attempts: attemptsLog.length,
       successfulAttempts,
       attemptsLog,
@@ -280,15 +146,8 @@ async function safeSendErrorAlert(config, stage, error) {
   if (!config.alerts.onErrors) {
     return;
   }
-
   try {
-    await sendTelegramMessage(
-      config,
-      buildErrorAlert({
-        stage,
-        error,
-      }),
-    );
+    await sendTelegramMessage(config, buildErrorAlert({ stage, error }));
   } catch (notifyError) {
     console.error("Failed to send Telegram error alert:", notifyError.message);
   }
@@ -297,36 +156,28 @@ async function safeSendErrorAlert(config, stage, error) {
 async function runCheck(config, trigger = "manual") {
   const now = dayjs().tz(config.timezone);
   const targetDateLabel = now.format("YYYY-MM-DD");
-
   try {
-    const { parsed, evaluation } = await collectAttendanceWithRetries(
+    const { parsed, evaluation } = await collectImageAttendanceWithRetries(
       config,
       now,
-      targetDateLabel,
+      "checkout",
       trigger,
     );
-
     if (evaluation.alertUsers.length > 0) {
-      const message = buildAttendanceAlert({
-        targetDateLabel,
-        chatUrl: config.chatUrl,
-        alertUsers: evaluation.alertUsers,
-      });
-
-      await sendTelegramMessage(config, message);
+      await sendTelegramMessage(
+        config,
+        buildAttendanceAlert({
+          targetDateLabel,
+          cutoffLabel: config.checkIn.cutoffLabel,
+          chatUrl: config.chatUrl,
+          alertUsers: evaluation.alertUsers,
+        }),
+      );
     }
-
-    const statusLine = formatStatusLine(evaluation.statuses);
-
     console.log(
-      `[${targetDateLabel}] trigger=${trigger} attempts=${parsed.attempts} scanned=${parsed.scannedLines} entries=${parsed.entries.length} ${statusLine}`,
+      `[${targetDateLabel}] trigger=${trigger} attempts=${parsed.attempts} scanned=${parsed.scannedMessages} images=${parsed.entries.length} ${formatStatusLine(evaluation.statuses)}`,
     );
-
-    return {
-      now,
-      parsed,
-      evaluation,
-    };
+    return { now, parsed, evaluation };
   } catch (error) {
     await safeSendErrorAlert(config, "run_check", error);
     throw error;
@@ -336,37 +187,28 @@ async function runCheck(config, trigger = "manual") {
 async function runCheckInCheck(config, trigger = "manual") {
   const now = dayjs().tz(config.timezone);
   const targetDateLabel = now.format("YYYY-MM-DD");
-
   try {
-    const { parsed, evaluation } = await collectCheckInsWithRetries(
+    const { parsed, evaluation } = await collectImageAttendanceWithRetries(
       config,
       now,
-      targetDateLabel,
+      "checkin",
       trigger,
     );
-
     if (evaluation.alertUsers.length > 0) {
-      const message = buildCheckInAttendanceAlert({
-        targetDateLabel,
-        cutoffLabel: config.checkIn.cutoffLabel,
-        chatUrl: config.chatUrl,
-        alertUsers: evaluation.alertUsers,
-      });
-
-      await sendTelegramMessage(config, message);
+      await sendTelegramMessage(
+        config,
+        buildCheckInAttendanceAlert({
+          targetDateLabel,
+          checkTimeLabel: now.format("HH:mm"),
+          chatUrl: config.chatUrl,
+          alertUsers: evaluation.alertUsers,
+        }),
+      );
     }
-
-    const statusLine = formatCheckInStatusLine(evaluation.statuses);
-
     console.log(
-      `[${targetDateLabel}] trigger=${trigger} checkin attempts=${parsed.attempts} scanned=${parsed.scannedLines} entries=${parsed.entries.length} ${statusLine}`,
+      `[${targetDateLabel}] trigger=${trigger} checkin attempts=${parsed.attempts} scanned=${parsed.scannedMessages} images=${parsed.entries.length} ${formatStatusLine(evaluation.statuses)}`,
     );
-
-    return {
-      now,
-      parsed,
-      evaluation,
-    };
+    return { now, parsed, evaluation };
   } catch (error) {
     await safeSendErrorAlert(config, "run_check_in", error);
     throw error;
@@ -374,8 +216,7 @@ async function runCheckInCheck(config, trigger = "manual") {
 }
 
 module.exports = {
-  collectCheckInsWithRetries,
-  collectAttendanceWithRetries,
+  collectImageAttendanceWithRetries,
   runCheckInCheck,
   runCheck,
   safeSendErrorAlert,
