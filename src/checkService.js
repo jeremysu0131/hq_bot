@@ -101,7 +101,7 @@ async function collectImageAttendanceWithRetries(config, now, mode, trigger) {
       });
 
       console.log(
-        `[${now.format("YYYY-MM-DD")}] trigger=${trigger} mode=${mode} attempt=${attempt}/${attempts} scanned=${parsed.scannedMessages} images=${parsed.entries.length} added=${addedEntries} unresolved=${unresolvedUsers.length}`,
+        `[${now.format("YYYY-MM-DD")}] trigger=${trigger} mode=${mode} attempt=${attempt}/${attempts} scanned=${parsed.scannedMessages} matchedImages=${parsed.entries.length} added=${addedEntries} unresolved=${unresolvedUsers.length}`,
       );
 
       const isComplete =
@@ -175,7 +175,7 @@ async function runCheck(config, trigger = "manual") {
       );
     }
     console.log(
-      `[${targetDateLabel}] trigger=${trigger} attempts=${parsed.attempts} scanned=${parsed.scannedMessages} images=${parsed.entries.length} ${formatStatusLine(evaluation.statuses)}`,
+      `[${targetDateLabel}] trigger=${trigger} attempts=${parsed.attempts} scanned=${parsed.scannedMessages} matchedImages=${parsed.entries.length} ${formatStatusLine(evaluation.statuses)}`,
     );
     return { now, parsed, evaluation };
   } catch (error) {
@@ -206,7 +206,7 @@ async function runCheckInCheck(config, trigger = "manual") {
       );
     }
     console.log(
-      `[${targetDateLabel}] trigger=${trigger} checkin attempts=${parsed.attempts} scanned=${parsed.scannedMessages} images=${parsed.entries.length} ${formatStatusLine(evaluation.statuses)}`,
+      `[${targetDateLabel}] trigger=${trigger} checkin attempts=${parsed.attempts} scanned=${parsed.scannedMessages} matchedImages=${parsed.entries.length} ${formatStatusLine(evaluation.statuses)}`,
     );
     return { now, parsed, evaluation };
   } catch (error) {

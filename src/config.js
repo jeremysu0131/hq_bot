@@ -223,6 +223,15 @@ function loadConfig(mode) {
       "WATCH_USERS must contain at least one name",
     );
   }
+  if (
+    selectedMode !== "auth" &&
+    watchUsers.some((user) => !user.email)
+  ) {
+    throw new AppError(
+      "CONFIG_INVALID",
+      "WATCH_USERS entries must use an email address, optionally followed by a Telegram tag",
+    );
+  }
 
   const config = {
     mode: selectedMode,

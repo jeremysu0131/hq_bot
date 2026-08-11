@@ -1,4 +1,4 @@
-const { parseWatchUsers } = require("../src/config");
+const { loadConfig, parseWatchUsers } = require("../src/config");
 
 describe("parseWatchUsers", () => {
   test("parses legacy comma-separated format", () => {
@@ -30,5 +30,25 @@ describe("parseWatchUsers", () => {
       "",
       "@richard_dev",
     ]);
+  });
+});
+
+describe("loadConfig", () => {
+  const originalEnv = process.env;
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  test("rejects legacy display names because image matching requires email", () => {
+    process.env = {
+      ...originalEnv,
+      GOOGLE_CHAT_URL: "https://chat.google.com/example",
+      WATCH_USERS: "HQT - Jeremy, @JSanXiao",
+    };
+
+    expect(() => loadConfig("check")).toThrow(
+      "WATCH_USERS entries must use an email address",
+    );
   });
 });
