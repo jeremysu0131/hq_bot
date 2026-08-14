@@ -436,55 +436,96 @@ function mergeMessageSnapshots(target, snapshot) {
   }
 }
 
-async function collectChatMessages(page, config) {
-  const messagesById = new Map();
-  let containerCount = 0;
-  let mainTextLength = 0;
+function oldestMessageTimestamp(messages) {
+  let oldestTimestamp = null;
 
-  for (let round = 0; round < config.chat.scrollRounds; round += 1) {
-    const snapshot = await readVisibleMessageSnapshot(page);
-    containerCount = Math.max(containerCount, snapshot.containerCount);
-    mainTextLength = Math.max(mainTextLength, snapshot.mainTextLength || 0);
-    mergeMessageSnapshots(messagesById, snapshot);
+  for (const message of messages) {
+    const timestamp = Date.parse(message.sentAt);
+    if (Number.isNaN(timestamp)) {
+      continue;
+    }
 
-    const moved = await page.evaluate(() => {
-      const main = document.querySelector("[role='main']");
-      const candidates = main
-        ? [main, ...Array.from(main.querySelectorAll("*"))]
-        : [];
-      const target = candidates
+    if (oldestTimestamp === null || timestamp < oldestTimestamp) {
+      oldestTimestamp = timestamp;
+    }
+  }
+
+  return oldestTimestamp;
+}
+
+async function scrollTowardOlderMessages(page) {
+  return page.evaluate(() => {
+    const main = document.querySelector("[role='main']");
+    const roots = Array.from(
+      document.querySelectorAll("[role='group'][data-id]"),
+    );
+    const candidateScores = new Map();
+
+    for (const root of roots) {
+      let element = root.parentElement;
+      while (element && element !== main?.parentElement) {
+        if (
+          element.clientHeight > 100 &&
+          element.scrollHeight - element.clientHeight > 120
+        ) {
+          candidateScores.set(element, (candidateScores.get(element) || 0) + 1);
+        }
+        if (element === main) {
+          break;
+        }
+        element = element.parentElement;
+      }
+    }
+
+    let candidates = Array.from(candidateScores, ([element, messageCount]) => ({
+      element,
+      messageCount,
+    }));
+
+    if (candidates.length === 0 && main) {
+      candidates = [main, ...Array.from(main.querySelectorAll("*"))]
         .filter(
           (element) =>
             element.clientHeight > 100 &&
             element.scrollHeight - element.clientHeight > 120,
         )
-        .sort(
-          (left, right) =>
-            right.scrollHeight -
-            right.clientHeight -
-            (left.scrollHeight - left.clientHeight),
-        )[0];
-
-      if (!target) {
-        return false;
-      }
-
-      const previousTop = target.scrollTop;
-      target.scrollTop = Math.max(
-        0,
-        previousTop - Math.max(400, Math.floor(target.clientHeight * 0.8)),
-      );
-      return previousTop > 0;
-    });
-
-    if (!moved) {
-      break;
+        .map((element) => ({ element, messageCount: 0 }));
     }
 
-    await page.waitForTimeout(config.chat.scrollWaitMs);
-  }
+    const target = candidates
+      .sort(
+        (left, right) =>
+          right.messageCount - left.messageCount ||
+          Number(right.element.scrollTop > 0) -
+            Number(left.element.scrollTop > 0) ||
+          right.element.clientHeight - left.element.clientHeight,
+      )[0]?.element;
 
-  const messages = Array.from(messagesById.values());
+    if (!target) {
+      return { moved: false, atTop: false };
+    }
+
+    const previousTop = target.scrollTop;
+    if (previousTop <= 0) {
+      return { moved: false, atTop: true };
+    }
+
+    const distance = Math.max(400, Math.floor(target.clientHeight * 0.8));
+    target.scrollTop = Math.max(0, previousTop - distance);
+    const currentTop = target.scrollTop;
+
+    return {
+      moved: currentTop < previousTop,
+      atTop: currentTop <= 0,
+    };
+  });
+}
+
+function validateCollectedMessages({
+  messages,
+  containerCount,
+  mainTextLength,
+}) {
   const completeMessages = messages.filter(
     (message) => message.senderEmail && message.sentAt,
   );
@@ -494,20 +535,100 @@ async function collectChatMessages(page, config) {
   );
 
   if (
-    (mainTextLength > 0 && containerCount === 0) ||
+    containerCount === 0 ||
     (containerCount > 0 && completeMessages.length === 0) ||
     incompleteImageMessages.length > 0
   ) {
     throw new AppError(
       "CHAT_DOM_PARSE_FAILED",
-      `Google Chat DOM extraction was incomplete (containers=${containerCount}, complete=${completeMessages.length}, incompleteImages=${incompleteImageMessages.length}).`,
+      `Google Chat DOM extraction was incomplete (containers=${containerCount}, complete=${completeMessages.length}, incompleteImages=${incompleteImageMessages.length}, textLength=${mainTextLength}).`,
     );
   }
 
   return completeMessages;
 }
 
-async function fetchChatMessages(config) {
+async function collectChatMessages(page, config, options = {}) {
+  const oldestRequiredTimestamp = options.oldestRequiredAt
+    ? Date.parse(options.oldestRequiredAt)
+    : null;
+  if (
+    options.oldestRequiredAt &&
+    Number.isNaN(oldestRequiredTimestamp)
+  ) {
+    throw new AppError(
+      "CONFIG_INVALID",
+      `Invalid oldestRequiredAt value: ${options.oldestRequiredAt}`,
+    );
+  }
+
+  const messagesById = new Map();
+  let containerCount = 0;
+  let mainTextLength = 0;
+  let reachedTop = false;
+
+  for (let round = 0; round < config.chat.scrollRounds; round += 1) {
+    const snapshot = await readVisibleMessageSnapshot(page);
+    containerCount = Math.max(containerCount, snapshot.containerCount);
+    mainTextLength = Math.max(mainTextLength, snapshot.mainTextLength || 0);
+    mergeMessageSnapshots(messagesById, snapshot);
+
+    const messages = Array.from(messagesById.values());
+    const oldestTimestamp = oldestMessageTimestamp(messages);
+    const reachedBoundary =
+      oldestRequiredTimestamp === null ||
+      (oldestTimestamp !== null && oldestTimestamp <= oldestRequiredTimestamp);
+
+    if (reachedBoundary || reachedTop) {
+      const completeMessages = validateCollectedMessages({
+        messages,
+        containerCount,
+        mainTextLength,
+      });
+      console.log(
+        `Google Chat scan complete: reason=${reachedBoundary ? "boundary" : "top"} rounds=${round + 1} messages=${completeMessages.length} oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()} required=${oldestRequiredTimestamp === null ? "none" : new Date(oldestRequiredTimestamp).toISOString()}`,
+      );
+      return completeMessages;
+    }
+
+    const scrollResult = await scrollTowardOlderMessages(page);
+    if (!scrollResult.moved && !scrollResult.atTop) {
+      throw new AppError(
+        "CHAT_SCROLL_INCOMPLETE",
+        `Google Chat stopped scrolling before the required time (oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()}, required=${new Date(oldestRequiredTimestamp).toISOString()}).`,
+      );
+    }
+
+    if (!scrollResult.moved && scrollResult.atTop) {
+      const completeMessages = validateCollectedMessages({
+        messages,
+        containerCount,
+        mainTextLength,
+      });
+      console.log(
+        `Google Chat scan complete: reason=top rounds=${round + 1} messages=${completeMessages.length} oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()} required=${new Date(oldestRequiredTimestamp).toISOString()}`,
+      );
+      return completeMessages;
+    }
+
+    if (round === config.chat.scrollRounds - 1) {
+      break;
+    }
+
+    reachedTop = scrollResult.atTop;
+    await page.waitForTimeout(config.chat.scrollWaitMs);
+  }
+
+  const messages = Array.from(messagesById.values());
+  const oldestTimestamp = oldestMessageTimestamp(messages);
+  validateCollectedMessages({ messages, containerCount, mainTextLength });
+  throw new AppError(
+    "CHAT_SCROLL_INCOMPLETE",
+    `Google Chat did not reach the required time within ${config.chat.scrollRounds} rounds (oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()}, required=${new Date(oldestRequiredTimestamp).toISOString()}).`,
+  );
+}
+
+async function fetchChatMessages(config, options = {}) {
   const hasSession = fs.existsSync(config.sessionPath);
   const { browser, context } = await launchBrowserContext(config, {
     ignoreStoredSession: !hasSession,
@@ -520,7 +641,7 @@ async function fetchChatMessages(config) {
       allowAutoLogin: true,
       saveSessionAfterLogin: true,
     });
-    return await collectChatMessages(page, config);
+    return await collectChatMessages(page, config, options);
   } finally {
     await context.close();
     await browser.close();
@@ -535,6 +656,8 @@ module.exports = {
   performCredentialLogin,
   launchBrowserContext,
   mergeMessageSnapshots,
+  oldestMessageTimestamp,
   readVisibleMessageSnapshot,
+  scrollTowardOlderMessages,
   ensureChatIsReady,
 };

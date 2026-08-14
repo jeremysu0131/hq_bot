@@ -79,6 +79,10 @@ describe("image check service", () => {
     const result = await runCheck(buildConfig(), "test");
 
     expect(fetchChatMessages).toHaveBeenCalledTimes(3);
+    expect(fetchChatMessages).toHaveBeenCalledWith(
+      expect.any(Object),
+      { oldestRequiredAt: "2026-08-10T22:00:00.000Z" },
+    );
     expect(result.evaluation.alertUsers.map((item) => item.userName)).toEqual([
       "conner.ch@spookyy.com",
     ]);
@@ -114,6 +118,10 @@ describe("image check service", () => {
     const result = await runCheckInCheck(buildConfig(), "test");
 
     expect(fetchChatMessages).toHaveBeenCalledTimes(3);
+    expect(fetchChatMessages).toHaveBeenCalledWith(
+      expect.any(Object),
+      { oldestRequiredAt: "2026-08-10T22:00:00.000Z" },
+    );
     expect(result.evaluation.alertUsers.map((item) => item.userName)).toEqual([
       "conner.ch@spookyy.com",
     ]);
@@ -134,5 +142,22 @@ describe("image check service", () => {
     expect(result.parsed.successfulAttempts).toBe(1);
     expect(result.evaluation.alertUsers).toHaveLength(0);
     expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  test("sends only an error alert when all scans are incomplete", async () => {
+    jest.setSystemTime(new Date("2026-08-11T01:28:00.000Z"));
+    const error = Object.assign(new Error("scroll incomplete"), {
+      code: "CHAT_SCROLL_INCOMPLETE",
+    });
+    fetchChatMessages.mockRejectedValue(error);
+
+    await expect(runCheckInCheck(buildConfig(), "test")).rejects.toBe(error);
+
+    expect(fetchChatMessages).toHaveBeenCalledTimes(3);
+    expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
+    expect(sendTelegramMessage.mock.calls[0][1]).toContain("系統告警");
+    expect(sendTelegramMessage.mock.calls[0][1]).not.toContain(
+      "上班沒打卡提醒",
+    );
   });
 });

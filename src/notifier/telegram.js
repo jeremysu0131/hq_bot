@@ -1,6 +1,8 @@
 const axios = require("axios");
 const { toErrorSummary } = require("../errors");
 
+const ATTENDANCE_URL = "https://hr-att.web.app/";
+
 function isTelegramConfigured(config) {
   return Boolean(config.alerts.telegramToken && config.alerts.telegramChatId);
 }
@@ -47,6 +49,7 @@ function buildAttendanceAlert(payload) {
     `規則: ${cutoffLabel}（含）前曾發送上班圖片，但之後尚未發送下班圖片`,
     "未打卡下班名單:",
     userList,
+    `打卡網站: ${ATTENDANCE_URL}`,
     `群組: ${chatUrl}`,
   ].join("\n");
 }
@@ -66,6 +69,7 @@ function buildCheckInAttendanceAlert(payload) {
     `規則: 截至 ${checkTimeLabel} 尚未發送上班圖片`,
     "未打卡上班名單:",
     userList,
+    `打卡網站: ${ATTENDANCE_URL}`,
     `群組: ${chatUrl}`,
   ].join("\n");
 }

@@ -10,6 +10,7 @@ const {
 } = require("./notifier/telegram");
 
 const DEFAULT_CHECK_ATTEMPTS = 3;
+const ATTENDANCE_SCAN_START_HOUR = 6;
 
 function getCheckAttempts(config) {
   return config.check?.attempts || DEFAULT_CHECK_ATTEMPTS;
@@ -42,6 +43,16 @@ function minutesAt(now) {
   return now.hour() * 60 + now.minute();
 }
 
+function attendanceScanStart(now) {
+  return now
+    .startOf("day")
+    .hour(ATTENDANCE_SCAN_START_HOUR)
+    .minute(0)
+    .second(0)
+    .millisecond(0)
+    .toISOString();
+}
+
 function formatStatusLine(statuses) {
   return statuses
     .map(
@@ -64,7 +75,9 @@ async function collectImageAttendanceWithRetries(config, now, mode, trigger) {
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const messages = await fetchChatMessages(config);
+      const messages = await fetchChatMessages(config, {
+        oldestRequiredAt: attendanceScanStart(now),
+      });
       const parsed = parseImageAttendanceEntries(messages, {
         targetDate: now,
         timezone: config.timezone,
