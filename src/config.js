@@ -283,6 +283,15 @@ function loadConfig(mode) {
           max: 5000,
         },
       ),
+      scrollLoadTimeoutMs: parseInteger(
+        "CHAT_SCROLL_LOAD_TIMEOUT_MS",
+        process.env.CHAT_SCROLL_LOAD_TIMEOUT_MS,
+        60000,
+        {
+          min: 500,
+          max: 180000,
+        },
+      ),
     },
     check: {
       attempts: parseInteger("CHECK_ATTEMPTS", process.env.CHECK_ATTEMPTS, 3, {

@@ -51,4 +51,16 @@ describe("loadConfig", () => {
       "WATCH_USERS entries must use an email address",
     );
   });
+
+  test("configures the older message batch load timeout", () => {
+    process.env = {
+      GOOGLE_CHAT_URL: "https://chat.google.com/example",
+      WATCH_USERS: "jeremy.j@spookyy.com",
+    };
+
+    expect(loadConfig("check").chat.scrollLoadTimeoutMs).toBe(60000);
+
+    process.env.CHAT_SCROLL_LOAD_TIMEOUT_MS = "7500";
+    expect(loadConfig("check").chat.scrollLoadTimeoutMs).toBe(7500);
+  });
 });

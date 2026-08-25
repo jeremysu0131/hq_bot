@@ -502,30 +502,76 @@ async function scrollTowardOlderMessages(page) {
       )[0]?.element;
 
     if (!target) {
-      return { moved: false, atTop: false };
+      return null;
     }
 
     const previousTop = target.scrollTop;
-    if (previousTop <= 0) {
-      return { moved: false, atTop: true };
-    }
-
-    const distance = Math.max(400, Math.floor(target.clientHeight * 0.8));
-    target.scrollTop = Math.max(0, previousTop - distance);
-    const currentTop = target.scrollTop;
+    const firstMessageId = roots[0]?.getAttribute("data-id") || "";
+    const scrollHeight = target.scrollHeight;
+    target.scrollTop = 0;
+    target.dispatchEvent(new Event("scroll", { bubbles: true }));
 
     return {
-      moved: currentTop < previousTop,
-      atTop: currentTop <= 0,
+      firstMessageId,
+      moved: target.scrollTop < previousTop,
+      scrollHeight,
     };
   });
 }
 
-function validateCollectedMessages({
-  messages,
-  containerCount,
-  mainTextLength,
-}) {
+async function waitForOlderMessageBatch(page, previous, timeoutMs) {
+  try {
+    await page.waitForFunction(
+      ({ firstMessageId, scrollHeight }) => {
+        const roots = Array.from(
+          document.querySelectorAll("[role='group'][data-id]"),
+        );
+        const candidateScores = new Map();
+
+        for (const root of roots) {
+          let element = root.parentElement;
+          while (element) {
+            if (
+              element.clientHeight > 100 &&
+              element.scrollHeight - element.clientHeight > 120
+            ) {
+              candidateScores.set(
+                element,
+                (candidateScores.get(element) || 0) + 1,
+              );
+            }
+            element = element.parentElement;
+          }
+        }
+
+        const target = Array.from(
+          candidateScores,
+          ([element, messageCount]) => ({ element, messageCount }),
+        ).sort(
+          (left, right) =>
+            right.messageCount - left.messageCount ||
+            right.element.clientHeight - left.element.clientHeight,
+        )[0]?.element;
+
+        return Boolean(
+          target &&
+            (target.scrollHeight !== scrollHeight ||
+              (roots[0]?.getAttribute("data-id") || "") !== firstMessageId),
+        );
+      },
+      previous,
+      { timeout: timeoutMs },
+    );
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function validateCollectedMessages(
+  { messages, containerCount, mainTextLength },
+  options = {},
+) {
   const completeMessages = messages.filter(
     (message) => message.senderEmail && message.sentAt,
   );
@@ -542,6 +588,16 @@ function validateCollectedMessages({
     throw new AppError(
       "CHAT_DOM_PARSE_FAILED",
       `Google Chat DOM extraction was incomplete (containers=${containerCount}, complete=${completeMessages.length}, incompleteImages=${incompleteImageMessages.length}, textLength=${mainTextLength}).`,
+    );
+  }
+
+  if (
+    options.requireUploadedImage &&
+    !completeMessages.some((message) => message.hasUploadedImage)
+  ) {
+    throw new AppError(
+      "CHAT_ATTACHMENT_LOAD_INCOMPLETE",
+      `Google Chat loaded ${completeMessages.length} messages but no image attachments were available.`,
     );
   }
 
@@ -565,7 +621,6 @@ async function collectChatMessages(page, config, options = {}) {
   const messagesById = new Map();
   let containerCount = 0;
   let mainTextLength = 0;
-  let reachedTop = false;
 
   for (let round = 0; round < config.chat.scrollRounds; round += 1) {
     const snapshot = await readVisibleMessageSnapshot(page);
@@ -579,34 +634,13 @@ async function collectChatMessages(page, config, options = {}) {
       oldestRequiredTimestamp === null ||
       (oldestTimestamp !== null && oldestTimestamp <= oldestRequiredTimestamp);
 
-    if (reachedBoundary || reachedTop) {
-      const completeMessages = validateCollectedMessages({
-        messages,
-        containerCount,
-        mainTextLength,
-      });
-      console.log(
-        `Google Chat scan complete: reason=${reachedBoundary ? "boundary" : "top"} rounds=${round + 1} messages=${completeMessages.length} oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()} required=${oldestRequiredTimestamp === null ? "none" : new Date(oldestRequiredTimestamp).toISOString()}`,
+    if (reachedBoundary) {
+      const completeMessages = validateCollectedMessages(
+        { messages, containerCount, mainTextLength },
+        { requireUploadedImage: options.requireUploadedImage },
       );
-      return completeMessages;
-    }
-
-    const scrollResult = await scrollTowardOlderMessages(page);
-    if (!scrollResult.moved && !scrollResult.atTop) {
-      throw new AppError(
-        "CHAT_SCROLL_INCOMPLETE",
-        `Google Chat stopped scrolling before the required time (oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()}, required=${new Date(oldestRequiredTimestamp).toISOString()}).`,
-      );
-    }
-
-    if (!scrollResult.moved && scrollResult.atTop) {
-      const completeMessages = validateCollectedMessages({
-        messages,
-        containerCount,
-        mainTextLength,
-      });
       console.log(
-        `Google Chat scan complete: reason=top rounds=${round + 1} messages=${completeMessages.length} oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()} required=${new Date(oldestRequiredTimestamp).toISOString()}`,
+        `Google Chat scan complete: reason=boundary rounds=${round + 1} messages=${completeMessages.length} oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()} required=${oldestRequiredTimestamp === null ? "none" : new Date(oldestRequiredTimestamp).toISOString()}`,
       );
       return completeMessages;
     }
@@ -615,7 +649,26 @@ async function collectChatMessages(page, config, options = {}) {
       break;
     }
 
-    reachedTop = scrollResult.atTop;
+    const scrollResult = await scrollTowardOlderMessages(page);
+    if (!scrollResult) {
+      throw new AppError(
+        "CHAT_SCROLL_INCOMPLETE",
+        `Google Chat message scroll container was not found before the required time (oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()}, required=${new Date(oldestRequiredTimestamp).toISOString()}).`,
+      );
+    }
+
+    const loadedOlderBatch = await waitForOlderMessageBatch(
+      page,
+      scrollResult,
+      config.chat.scrollLoadTimeoutMs,
+    );
+    if (!loadedOlderBatch) {
+      throw new AppError(
+        "CHAT_SCROLL_INCOMPLETE",
+        `Google Chat did not load an older message batch within ${config.chat.scrollLoadTimeoutMs}ms (oldest=${oldestTimestamp === null ? "unknown" : new Date(oldestTimestamp).toISOString()}, required=${new Date(oldestRequiredTimestamp).toISOString()}).`,
+      );
+    }
+
     await page.waitForTimeout(config.chat.scrollWaitMs);
   }
 
@@ -659,5 +712,6 @@ module.exports = {
   oldestMessageTimestamp,
   readVisibleMessageSnapshot,
   scrollTowardOlderMessages,
+  waitForOlderMessageBatch,
   ensureChatIsReady,
 };

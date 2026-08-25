@@ -77,6 +77,7 @@ async function collectImageAttendanceWithRetries(config, now, mode, trigger) {
     try {
       const messages = await fetchChatMessages(config, {
         oldestRequiredAt: attendanceScanStart(now),
+        requireUploadedImage: true,
       });
       const parsed = parseImageAttendanceEntries(messages, {
         targetDate: now,

@@ -97,7 +97,11 @@ describe("collectChatMessages", () => {
             },
           ],
         })
-        .mockResolvedValueOnce({ moved: true, atTop: false })
+        .mockResolvedValueOnce({
+          firstMessageId: "newer",
+          moved: true,
+          scrollHeight: 2000,
+        })
         .mockResolvedValueOnce({
           containerCount: 1,
           mainTextLength: 20,
@@ -109,15 +113,21 @@ describe("collectChatMessages", () => {
               hasUploadedImage: true,
             },
           ],
-        })
-        .mockResolvedValueOnce({ moved: false, atTop: true }),
+        }),
+      waitForFunction: jest.fn().mockResolvedValue(undefined),
       waitForTimeout: jest.fn().mockResolvedValue(undefined),
     };
 
     const messages = await collectChatMessages(
       page,
-      { chat: { scrollRounds: 4, scrollWaitMs: 1 } },
-      { oldestRequiredAt: "2026-08-10T22:00:00.000Z" },
+      {
+        chat: {
+          scrollRounds: 4,
+          scrollWaitMs: 1,
+          scrollLoadTimeoutMs: 5000,
+        },
+      },
+      { oldestRequiredAt: "2026-08-11T00:02:00.000Z" },
     );
 
     expect(messages.map((message) => message.id)).toEqual(["newer", "older"]);
@@ -152,7 +162,7 @@ describe("collectChatMessages", () => {
     expect(page.waitForTimeout).not.toHaveBeenCalled();
   });
 
-  test("accepts the complete snapshot when the message list is already at the top", async () => {
+  test("fails when reaching scrollTop zero does not load an older batch", async () => {
     const page = {
       evaluate: jest
         .fn()
@@ -168,18 +178,34 @@ describe("collectChatMessages", () => {
             },
           ],
         })
-        .mockResolvedValueOnce({ moved: false, atTop: true }),
+        .mockResolvedValueOnce({
+          firstMessageId: "room-start",
+          moved: false,
+          scrollHeight: 1000,
+        }),
+      waitForFunction: jest.fn().mockRejectedValue(new Error("timeout")),
       waitForTimeout: jest.fn(),
     };
 
-    const messages = await collectChatMessages(
-      page,
-      { chat: { scrollRounds: 1, scrollWaitMs: 1 } },
-      { oldestRequiredAt: "2026-08-13T22:00:00.000Z" },
-    );
+    await expect(
+      collectChatMessages(
+        page,
+        {
+          chat: {
+            scrollRounds: 2,
+            scrollWaitMs: 1,
+            scrollLoadTimeoutMs: 5000,
+          },
+        },
+        { oldestRequiredAt: "2026-08-13T22:00:00.000Z" },
+      ),
+    ).rejects.toMatchObject({ code: "CHAT_SCROLL_INCOMPLETE" });
 
-    expect(messages.map((message) => message.id)).toEqual(["room-start"]);
-    expect(page.waitForTimeout).not.toHaveBeenCalled();
+    expect(page.waitForFunction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ firstMessageId: "room-start" }),
+      { timeout: 5000 },
+    );
   });
 
   test("fails when the required time is not reached within the scroll limit", async () => {
@@ -199,18 +225,56 @@ describe("collectChatMessages", () => {
       evaluate: jest
         .fn()
         .mockResolvedValueOnce(snapshot)
-        .mockResolvedValueOnce({ moved: true, atTop: false })
-        .mockResolvedValueOnce(snapshot)
-        .mockResolvedValueOnce({ moved: true, atTop: false }),
+        .mockResolvedValueOnce({
+          firstMessageId: "too-new",
+          moved: true,
+          scrollHeight: 2000,
+        })
+        .mockResolvedValueOnce(snapshot),
+      waitForFunction: jest.fn().mockResolvedValue(undefined),
       waitForTimeout: jest.fn().mockResolvedValue(undefined),
     };
 
     await expect(
       collectChatMessages(
         page,
-        { chat: { scrollRounds: 2, scrollWaitMs: 1 } },
+        {
+          chat: {
+            scrollRounds: 2,
+            scrollWaitMs: 1,
+            scrollLoadTimeoutMs: 5000,
+          },
+        },
         { oldestRequiredAt: "2026-08-13T22:00:00.000Z" },
       ),
     ).rejects.toMatchObject({ code: "CHAT_SCROLL_INCOMPLETE" });
+  });
+
+  test("fails a complete time range when no image attachments were loaded", async () => {
+    const page = {
+      evaluate: jest.fn().mockResolvedValue({
+        containerCount: 1,
+        mainTextLength: 20,
+        messages: [
+          {
+            id: "text-only",
+            senderEmail: "jeremy.j@spookyy.com",
+            sentAt: "2026-08-13T22:00:00.000Z",
+            hasUploadedImage: false,
+          },
+        ],
+      }),
+    };
+
+    await expect(
+      collectChatMessages(
+        page,
+        { chat: { scrollRounds: 1 } },
+        {
+          oldestRequiredAt: "2026-08-13T22:00:00.000Z",
+          requireUploadedImage: true,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "CHAT_ATTACHMENT_LOAD_INCOMPLETE" });
   });
 });

@@ -81,7 +81,10 @@ describe("image check service", () => {
     expect(fetchChatMessages).toHaveBeenCalledTimes(3);
     expect(fetchChatMessages).toHaveBeenCalledWith(
       expect.any(Object),
-      { oldestRequiredAt: "2026-08-10T22:00:00.000Z" },
+      {
+        oldestRequiredAt: "2026-08-10T22:00:00.000Z",
+        requireUploadedImage: true,
+      },
     );
     expect(result.evaluation.alertUsers.map((item) => item.userName)).toEqual([
       "conner.ch@spookyy.com",
@@ -120,7 +123,10 @@ describe("image check service", () => {
     expect(fetchChatMessages).toHaveBeenCalledTimes(3);
     expect(fetchChatMessages).toHaveBeenCalledWith(
       expect.any(Object),
-      { oldestRequiredAt: "2026-08-10T22:00:00.000Z" },
+      {
+        oldestRequiredAt: "2026-08-10T22:00:00.000Z",
+        requireUploadedImage: true,
+      },
     );
     expect(result.evaluation.alertUsers.map((item) => item.userName)).toEqual([
       "conner.ch@spookyy.com",
